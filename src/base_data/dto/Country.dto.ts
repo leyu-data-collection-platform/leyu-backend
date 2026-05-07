@@ -1,16 +1,41 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsOptional, IsString, ValidateNested } from 'class-validator';
+import { AlternativeNamesDto } from './index.dto';
+import { Type } from 'class-transformer';
 
-export const createCountrySchema = z.object({
-  name: z.string().min(1),
-  code: z.string().min(1).optional(),
-  continent: z.string().min(1).optional(),
-});
-export const updateCountrySchema = z.object({
-  name: z.string().min(1).optional(),
-  code: z.string().min(1).optional(),
-  continent: z.string().min(1).optional(),
-});
-export class CreateCountryDto extends createZodDto(createCountrySchema) {}
-export class UpdateCountryDto extends createZodDto(updateCountrySchema) {}
-export class SearchCountryDto extends createZodDto(updateCountrySchema) {}
+export class CreateCountryDto {
+  @ApiProperty()
+  @IsString()
+  name: string;
+
+  @ApiProperty()
+  @IsString()
+  code: string;
+
+  @ApiProperty()
+  @IsString()
+  continent: string;
+}
+export class UpdateCountryDto {
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  code?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  continent?: string;
+
+  @ApiProperty({ required: false, type: [AlternativeNamesDto] })
+  @Type(() => AlternativeNamesDto)
+  @IsOptional()
+  @ValidateNested({ each: true })
+  alternative_names?: AlternativeNamesDto[];
+}
+export class SearchCountryDto extends UpdateCountryDto {}

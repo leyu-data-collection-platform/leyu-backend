@@ -45,6 +45,63 @@ export class RejectionTypeService {
   async findOne(query: Partial<RejectionType>): Promise<RejectionType | null> {
     return await this.rejectionTypeRepository.findOne({ where: query });
   }
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<RejectionType> {
+    const rejectionType = await this.rejectionTypeRepository.findOne({
+      where: { id },
+    });
+    if (!rejectionType) {
+      throw new BadRequestException('Rejection Type not found');
+    }
+    if (rejectionType.alternative_names == null) {
+      rejectionType.alternative_names = [];
+    }
+    if (
+      rejectionType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      throw new BadRequestException('Language already exists');
+    }
+    rejectionType.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.rejectionTypeRepository.save(rejectionType);
+  }
+
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<RejectionType> {
+    const rejectionType = await this.rejectionTypeRepository.findOne({
+      where: { id },
+    });
+    if (!rejectionType) {
+      throw new BadRequestException('Rejection Type not found');
+    }
+    if (rejectionType.alternative_names == null) {
+      rejectionType.alternative_names = [];
+    }
+    if (
+      rejectionType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      rejectionType.alternative_names = rejectionType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      rejectionType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.rejectionTypeRepository.save(rejectionType);
+  }
 
   async update(
     id: string,

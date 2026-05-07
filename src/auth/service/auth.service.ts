@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UserService } from 'src/auth/service/User.service';
 import { PermissionService } from 'src/auth/service/Permission.service';
 import { RoleService } from 'src/auth/service/Role.service';
@@ -16,11 +17,17 @@ import { SmsService } from 'src/sms/sms.service';
 import { EmailService } from 'src/email/email.service';
 import { User } from '../entities/User.entity';
 import { FileService } from 'src/common/service/File.service';
-import { ActionEvents } from 'src/utils/events/ActionEvents';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UserSanitize } from '../sanitize';
+import Redis from 'ioredis';
+
+const OTP_MAX_ATTEMPTS = 3;
+const OTP_ATTEMPTS_TTL_SECONDS = 300; // 5 minutes — matches OTP expiry
+
 @Injectable()
 export class AuthService {
+  private readonly redis: Redis;
+
   constructor(
     private usersService: UserService,
     private permissionsService: PermissionService,
@@ -31,7 +38,12 @@ export class AuthService {
     private fileService: FileService,
     private jwtService: JwtService,
     private eventEmitter: EventEmitter2,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    this.redis = new Redis(
+      this.configService.get<string>('REDIS_URL') as string,
+    );
+  }
   /**
    * Signs in a user based on the username and password
    * @param {string} username - The username of the user
@@ -71,6 +83,7 @@ export class AuthService {
       user.id,
       user.email,
     );
+    await this.usersService.markAsLoggedIn(user.id);
     const userDetail = UserSanitize.from(user);
     return { user: userDetail, access_token, refresh_token };
   }
@@ -126,12 +139,18 @@ export class AuthService {
       user.id,
       user.email,
     );
-    this.eventEmitter.emit(ActionEvents.USER_LOGGED_IN, {
-      user_id: user.id,
-      device_token: credential.device_token,
-      device_type: credential.device_type,
-    });
-    return { user, access_token, refresh_token };
+    await this.usersService.markAsLoggedIn(user.id);
+    // this.eventEmitter.emit(ActionEvents.USER_LOGGED_IN, {
+    //   user_id: user.id,
+    //   device_token: credential.device_token,
+    //   device_type: credential.device_type,
+    // });
+    const { password, ...basic } = user;
+    return {
+      user: basic,
+      access_token,
+      refresh_token,
+    };
   }
   /**
    * Refreshes an access token and refresh token based on the given refresh token
@@ -141,7 +160,9 @@ export class AuthService {
    */
   async refreshToken(refresh_token: string): Promise<any> {
     try {
-      const user = await this.jwtService.verify(refresh_token);
+      const user = await this.jwtService.verify(refresh_token, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
       const access_token = this.jwtService.sign({
         sub: user?.sub,
         email: user?.email,
@@ -193,10 +214,12 @@ export class AuthService {
       relations: { role: true },
     });
     if (!user) {
-      throw new UnauthorizedException();
+      return 'If an account with the provided username exists, a verification code has been sent to the registered email or phone number';
     }
     if (!user.is_active) {
-      throw new UnauthorizedException('User is not active');
+      throw new BadRequestException(
+        'User is not active, please contact support',
+      );
     }
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const code_expiration_date = new Date();
@@ -253,20 +276,66 @@ export class AuthService {
     return 'Password changed successfully';
   }
   /**
-   * Verifies a user's OTP given a verification code
-   * @throws {BadRequestException} - If the verification code is invalid or expired
+   * Verifies a user's OTP given a verification code.
+   * Failed attempt tracking is handled in Redis; after 3 failures the session is invalidated.
+   * @throws {BadRequestException} - If the session is expired, code is invalid, or max attempts reached
    */
   async verifyOtp(body: { username: string; code: string }): Promise<void> {
-    const userVerificationCode = await this.userVerificationService.findOne({
-      where: { username: body.username, code: body.code },
-    });
-    if (!userVerificationCode) {
+    const attemptsKey = `otp:attempts:${body.username}`;
+
+    const record =
+      await this.userVerificationService.findLatestPendingByUsername(
+        body.username,
+      );
+
+    if (!record) {
+      const expiredRecord = await this.userVerificationService.findOne({
+        where: { username: body.username, status: 'expired' },
+        order: { created_date: 'DESC' },
+      });
+      if (expiredRecord) {
+        throw new BadRequestException(
+          'OTP session expired. Please request a new OTP.',
+        );
+      }
       throw new BadRequestException('Invalid code');
     }
-    if (userVerificationCode.expiration_date < new Date()) {
+
+    if (record.status === 'expired') {
+      throw new BadRequestException(
+        'OTP session expired. Please request a new OTP.',
+      );
+    }
+
+    if (record.expiration_date < new Date()) {
+      await this.userVerificationService.expireSession(record.id);
+      await this.redis.del(attemptsKey);
       throw new BadRequestException('Code expired');
     }
-    return;
+
+    if (record.code !== body.code) {
+      const attempts = await this.redis.incr(attemptsKey);
+      // Set TTL only on first increment so the key auto-expires with the OTP window
+      if (attempts === 1) {
+        await this.redis.expire(attemptsKey, OTP_ATTEMPTS_TTL_SECONDS);
+      }
+
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await this.userVerificationService.expireSession(record.id);
+        await this.redis.del(attemptsKey);
+        throw new BadRequestException(
+          'Session invalidated after 3 failed attempts. Please request a new OTP.',
+        );
+      }
+
+      const remaining = OTP_MAX_ATTEMPTS - attempts;
+      throw new BadRequestException(
+        `Invalid code. ${remaining} attempt(s) remaining.`,
+      );
+    }
+
+    await this.userVerificationService.markVerified(record.id);
+    await this.redis.del(attemptsKey);
   }
   /**
    * Generates an access token and a refresh token for a user

@@ -37,9 +37,10 @@ import { EmailService } from 'src/email/email.service';
 import { paginate, PaginatedResult } from 'src/utils/paginate.util';
 import { DialectService } from 'src/base_data/service/Dialect.service';
 import { TaskInstruction } from '../entities/TaskInstruction.entity';
-import { TaskInstructionService } from './TaskInstruction.service';
+import { taskInstructionervice } from './TaskInstruction.service';
 import {
   CreateTaskDto,
+  GetTaskMembersFilterDto,
   UpdateTaskInstructionDto,
   UpdateTaskPaymentDto,
   UpdateTaskRequirementDto,
@@ -48,10 +49,12 @@ import { TaskRequirementService } from './TaskRequirement.service';
 import { TaskRequirement } from '../entities/TaskRequirement.entity';
 import { UserTaskStatus } from 'src/utils/constants/Task.constant';
 import { FacilitatorContributorService } from './FacilitatorContributor.service';
-import { DataSetStatus } from 'src/utils/constants/DataSetStatus.constant';
 import { FacilitatorContributor } from '../entities/FacilitatorContributor.entity';
 import { TaskPaymentService } from 'src/project/service/TaskPayment.service';
 import { getTaskStatus, TaskStatus } from 'src/utils/MicroTask.util';
+import { TaskMembersListResponseDto } from '../rto/Task.rto';
+import { ReviewerTaskInstruction } from '../entities/ReviewerTaskInstruction.entity';
+import { QATaskInstruction } from '../entities/QATaskInstruction.entity';
 export interface ContributorTaskRto extends Task {
   done_count?: number;
   total_count?: number;
@@ -72,7 +75,7 @@ export class TaskService {
     private readonly paginateService: PaginationService<Task>,
     private readonly taskTypeService: TaskTypeService,
     private readonly languageService: LanguageService,
-    private readonly taskInstructionService: TaskInstructionService,
+    private readonly taskInstructionervice: taskInstructionervice,
     private readonly taskRequirementService: TaskRequirementService,
     private readonly dialectService: DialectService,
     private readonly taskPaymentService: TaskPaymentService,
@@ -177,6 +180,7 @@ export class TaskService {
             taskData.max_contributor_per_facilitator,
           max_retry_per_task: taskData.max_retry_per_task,
           max_dataset_per_reviewer: taskData.max_dataset_per_reviewer,
+          max_reviewer_per_dataset: taskData.max_reviewer_per_dataset,
           maximum_seconds: taskData.maximum_seconds,
           minimum_seconds: taskData.minimum_seconds,
           maximum_characters_length: taskData.maximum_characters_length,
@@ -267,18 +271,11 @@ export class TaskService {
    * @param paginationDto The pagination options.
    * @returns A promise that resolves to a paginated result of task members.
    */
-  async findPaginateTaskMembers(
+  async getTaskMembers(
     task_id: string,
-    userTaskOption: FindOptionsWhere<UserTask>,
-    queryOption: FindOptionsWhere<User> | FindOptionsWhere<User>[],
-    paginationDto: PaginationDto,
-  ): Promise<PaginatedResult<UserTask>> {
-    return await this.userTaskService.findTaskMembers(
-      task_id,
-      userTaskOption,
-      queryOption,
-      paginationDto,
-    );
+    searchQuery: GetTaskMembersFilterDto,
+  ): Promise<PaginatedResult<TaskMembersListResponseDto>> {
+    return await this.userTaskService.getTaskMembers(task_id, searchQuery);
   }
   /**
    * Finds all task members of a task.
@@ -430,7 +427,6 @@ export class TaskService {
   async updateRequirement(
     task_id: string,
     taskData: UpdateTaskRequirementDto,
-    queryRunner?: QueryRunner,
   ): Promise<TaskRequirement | null> {
     const taskRequirement: TaskRequirement | null =
       await this.taskRequirementService.findOne({
@@ -446,44 +442,82 @@ export class TaskService {
     return await this.taskRequirementService.update(
       taskRequirement.id,
       taskData,
-      queryRunner,
     );
   }
   async updateInstruction(
-    task_id: string,
+    taskId: string,
+    instructionId: string,
     taskData: UpdateTaskInstructionDto,
-    queryRunner?: QueryRunner,
-  ): Promise<TaskInstruction | null> {
-    const taskInstruction: TaskInstruction | null =
-      await this.taskInstructionService.findOne({
-        where: { task_id: task_id },
-        relations: { task: true },
-      });
-    if (!taskInstruction) {
-      throw new NotFoundException(`Task Instruction not found`);
+  ): Promise<TaskInstruction | any> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: {
+        taskInstruction: true,
+        reviewerInstruction: true,
+        qaInstruction: true,
+      },
+    });
+    if (!task) {
+      throw new NotFoundException(`Task  not found`);
     }
-    return await this.taskInstructionService.update(
-      taskInstruction.id,
-      taskData,
-      queryRunner,
-    );
+    if (task.taskInstruction && task.taskInstruction.id === instructionId) {
+      return await this.taskInstructionervice.update(
+        instructionId,
+        'contributor',
+        taskData,
+      );
+    }
+    if (
+      task.reviewerInstruction &&
+      task.reviewerInstruction.id === instructionId
+    ) {
+      return await this.taskInstructionervice.update(
+        instructionId,
+        'reviewer',
+        taskData,
+      );
+    }
+    if (task.qaInstruction && task.qaInstruction.id === instructionId) {
+      return await this.taskInstructionervice.update(
+        instructionId,
+        'qa',
+        taskData,
+      );
+    }
   }
-  async deleteInstruction(id: string): Promise<void> {
-    const taskInstruction: TaskInstruction | null =
-      await this.taskInstructionService.findOne({
-        where: { id },
-      });
-    if (!taskInstruction) {
-      throw new NotFoundException(`Task Instruction not found`);
+  async deleteInstruction(
+    taskId: string,
+    instructionId: string,
+  ): Promise<void> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: {
+        taskInstruction: true,
+        reviewerInstruction: true,
+        qaInstruction: true,
+      },
+    });
+    if (!task) {
+      throw new NotFoundException(`Task  not found`);
     }
-    await this.taskInstructionService.remove(taskInstruction.id);
-    return;
+    if (task.taskInstruction && task.taskInstruction.id === instructionId) {
+      await this.taskInstructionervice.remove(instructionId, 'contributor');
+    }
+    if (
+      task.reviewerInstruction &&
+      task.reviewerInstruction.id === instructionId
+    ) {
+      await this.taskInstructionervice.remove(instructionId, 'reviewer');
+    }
+    if (task.qaInstruction && task.qaInstruction.id === instructionId) {
+      await this.taskInstructionervice.remove(instructionId, 'qa');
+    }
   }
 
   async remove(id: string): Promise<void> {
     const task = await this.findOne({
       where: { id },
-      relations: { taskRequirement: true, taskInstructions: true },
+      relations: { taskRequirement: true, taskInstruction: true },
     });
     if (!task) {
       throw new NotFoundException(`Task not found`);
@@ -492,12 +526,20 @@ export class TaskService {
       throw new BadRequestException(`Distribution already started`);
     }
     await this.taskRequirementService.remove(task.taskRequirement.id);
-    if (task.taskInstructions.length > 0) {
-      await Promise.all(
-        task.taskInstructions.map((taskInstruction: TaskInstruction) =>
-          this.taskInstructionService.remove(taskInstruction.id),
-        ),
+    if (task.taskInstruction) {
+      await this.taskInstructionervice.remove(
+        task.taskInstruction.id,
+        'contributor',
       );
+    }
+    if (task.reviewerInstruction) {
+      await this.taskInstructionervice.remove(
+        task.reviewerInstruction.id,
+        'reviewer',
+      );
+    }
+    if (task.qaInstruction) {
+      await this.taskInstructionervice.remove(task.qaInstruction.id, 'qa');
     }
     await this.taskRepository.delete(id);
     return;
@@ -539,7 +581,7 @@ export class TaskService {
         user.email,
         'Welcome to Leyu platform',
         `
-        Dear ${user.first_name} ${user.middle_name},you are assigned as a facilitator for a task ${task.name}
+        Dear ${user.first_name || 'user'} ${user.middle_name || ''},you are assigned as a facilitator for a task ${task.name}
        
         `,
       );
@@ -555,13 +597,12 @@ export class TaskService {
         queryRunner,
       );
       // Send email to user with random password
-      this.emailService.sendEmail(
+      this.emailService.sendLeyuAccountEmail(
         user.email,
-        'Welcome to Leyu platform',
-        `
-          Dear user, Welcome to our platform,you are assigned as a facilitator for a task ${task.name}
-          Your password is ${randomPassword}, you can change it later
-          `,
+        role.name,
+        user.phone_number,
+        randomPassword,
+        process.env.LEYU_DASHBOARD_URL as string,
       );
     }
     // Check If the user is already assigned
@@ -571,7 +612,7 @@ export class TaskService {
     if (userTaskBefore) {
       return userTaskBefore;
     }
-    return await this.userTaskService.create(
+    return this.userTaskService.create(
       {
         task_id: task.id,
         user_id: user.id,
@@ -617,7 +658,7 @@ export class TaskService {
         user.email,
         'Welcome to Leyu platform',
         `
-        Dear ${user.first_name} ${user.middle_name},you are assigned as a reviewer for a task ${task.name}
+        Dear ${user.first_name || 'user'} ${user.middle_name || ''},you are assigned as a reviewer for a task ${task.name}
        
         `,
       );
@@ -633,13 +674,12 @@ export class TaskService {
         queryRunner,
       );
       // Send email to user with random password
-      this.emailService.sendEmail(
+      this.emailService.sendLeyuAccountEmail(
         user.email,
-        'Welcome to Leyu platform',
-        `
-          Dear user, Welcome to our platform,you are assigned as a reviewer for a task ${task.name}
-          Your password is ${randomPassword}, you can change it later
-          `,
+        role.name,
+        user.phone_number,
+        randomPassword,
+        process.env.LEYU_DASHBOARD_URL as string,
       );
     }
     const userTaskBefore: UserTask | null = await this.userTaskService.findOne({
@@ -728,6 +768,56 @@ export class TaskService {
         }),
       );
       return userTasks;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(error);
+    }
+  }
+
+  async assignQA(
+    task_id: string,
+    qualityAssuranceIds: string[],
+    queryRunner: QueryRunner,
+  ): Promise<UserTask[]> {
+    const task: Task | null = await this.findOne({
+      where: { id: task_id },
+      relations: { userToTasks: true },
+    });
+    const role: Role | null = await this.roleService.findOne({
+      name: RoleEnum.QA,
+    });
+    try {
+      if (!task) {
+        throw new NotFoundException(`Task not found`);
+      }
+      if (!role) {
+        throw new NotFoundException(`Role not found`);
+      }
+      const users: User[] = await this.userService.findMany({
+        where: { id: In(qualityAssuranceIds), role_id: role.id },
+      });
+      console.log('users', users);
+      if (!users || users.length === 0) {
+        throw new NotFoundException(`User not found in this role`);
+      }
+      const status = UserTaskStatus.ACTIVE;
+      const memberships = await Promise.all(
+        users.map(async (user) => {
+          return this.userTaskService.findOneOrCreate(
+            { where: { task_id: task.id, user_id: user.id } },
+            {
+              task_id: task.id,
+              user_id: user.id,
+              role: RoleEnum.QA,
+              status: status,
+            },
+            queryRunner,
+          );
+        }),
+      );
+      return memberships;
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -894,11 +984,11 @@ export class TaskService {
   }
   /**
    * Updates a user task to pending status if the task status is rejected.
-   * If the user task does not exist, creates a new one.
+   * If the user task does not exist, creates a new one with pending status AND contributor role.
    * @param userTask The partial user task to update.
    * @param queryRunner The query runner to use for the transaction.
    */
-  async updateOrCreateUserToPending(
+  async updateOrCreateContributorToPending(
     userTask: Partial<UserTask> | DeepPartial<UserTask>,
     queryRunner: QueryRunner,
   ): Promise<void> {
@@ -916,6 +1006,8 @@ export class TaskService {
       );
       return;
     } else if (!userTaskBefore) {
+      userTask.status = UserTaskStatus.PENDING;
+      userTask.role = RoleEnum.CONTRIBUTOR;
       const data = queryRunner.manager.create(UserTask, userTask);
       await queryRunner.manager.save(UserTask, data);
     }
@@ -928,20 +1020,41 @@ export class TaskService {
    * @returns A promise that resolves to the created task instruction.
    * @throws {NotFoundException} - if the task is not found
    */
-  async addTaskInstructions(
+  async addtaskInstruction(
     taskInstruction: Partial<TaskInstruction>,
-    queryRunner?: QueryRunner,
-  ): Promise<TaskInstruction> {
+    type: 'contributor' | 'reviewer' | 'qa' = 'contributor',
+  ): Promise<TaskInstruction | ReviewerTaskInstruction | QATaskInstruction> {
     const task: Task | null = await this.findOne({
       where: { id: taskInstruction.task_id },
+      relations: {
+        reviewerInstruction: true,
+        qaInstruction: true,
+        taskInstruction: true,
+      },
     });
     if (!task) {
       throw new NotFoundException(`Task not found`);
     }
-    return await this.taskInstructionService.create(
-      taskInstruction,
-      queryRunner,
-    );
+    if (type == 'contributor') {
+      if (task.taskInstruction && task.taskInstruction != null) {
+        throw new BadRequestException('Instruction already exist');
+      }
+      return await this.taskInstructionervice.create(taskInstruction);
+    } else if (type == 'reviewer') {
+      if (task.reviewerInstruction && task.reviewerInstruction != null) {
+        throw new BadRequestException('Instruction already exist');
+      }
+      return await this.taskInstructionervice.createReviewerInstruction(
+        taskInstruction,
+      );
+    } else {
+      if (task.qaInstruction && task.qaInstruction != null) {
+        throw new BadRequestException('Instruction already exist');
+      }
+      return await this.taskInstructionervice.createQAInstruction(
+        taskInstruction,
+      );
+    }
   }
   /**
    * Removes a user from a task.
@@ -1013,7 +1126,7 @@ export class TaskService {
         userTaskBefore.user.email,
         'Leyu platform',
         `
-        Dear ${userTaskBefore.user.first_name} ${userTaskBefore.user.middle_name},you are flagged from the task ${userTaskBefore.task.name}
+        Dear ${userTaskBefore.user.first_name || 'user'} ${userTaskBefore.user.middle_name || ''},you are flagged from the task ${userTaskBefore.task.name}
         `,
       );
     }
@@ -1134,147 +1247,7 @@ export class TaskService {
     user_id: string,
     paginationDto: PaginationDto,
   ): Promise<PaginatedResult<Task>> {
-    const userTasks: UserTask[] = await this.userTaskService.findAll({
-      where: { user_id: user_id, role: RoleEnum.FACILITATOR },
-      relations: { task: true },
-    });
-    const task_ids: string[] = userTasks.map(
-      (userTask: UserTask) => userTask.task_id,
-    );
-    return this.findPaginate(
-      { where: { id: In(task_ids), is_archived: false } },
-      paginationDto,
-    );
-  }
-  /**
-   * Finds contributor submissions with pagination.
-   * @param contributor_id - The contributor id to find submissions for.
-   * @param paginationDto - The pagination options.
-   * @returns A promise resolving to a paginated result of contributor submissions.
-   */
-  async getContributorSubmissions(
-    contributor_id: string,
-    paginationDto: PaginationDto,
-  ): Promise<PaginatedResult<any>> {
-    const page = paginationDto.page || 1;
-    const limit = paginationDto.limit || 10;
-
-    // GET COMPLETED CONTRI
-    const qb = this.taskRepository
-      .createQueryBuilder('task')
-      .innerJoin('task.microTasks', 'microTask')
-      .innerJoin('task.taskType', 'taskType')
-      .innerJoin('microTask.dataSets', 'dataset')
-      .andWhere('microTask.is_test=false')
-      .where('dataset.contributor_id = :cid', { cid: contributor_id })
-      .andWhere(
-        'EXISTS (' +
-          'SELECT 1 FROM data_set ds ' +
-          'WHERE ds.micro_task_id = microTask.id ' +
-          'AND ds.contributor_id = :cid ' +
-          'AND ds.is_test = false ' +
-          'AND ds.status = :approvedStatus' +
-          ')',
-        {
-          cid: contributor_id,
-          approvedStatus: DataSetStatus.APPROVED,
-        },
-      )
-      .andWhere(
-        'NOT EXISTS (' +
-          'SELECT 1 FROM micro_task mt ' +
-          'WHERE mt.task_id = task.id ' +
-          'AND NOT EXISTS (' +
-          'SELECT 1 FROM data_set ds2 ' +
-          'WHERE ds2.micro_task_id = mt.id ' +
-          'AND ds2.is_test = false ' +
-          'AND ds2.contributor_id = :cid ' +
-          'AND ds2.status = :approvedStatus' +
-          ') ' +
-          'AND EXISTS (' +
-          'SELECT 1 FROM data_set ds3 ' +
-          'WHERE ds3.micro_task_id = mt.id ' +
-          'AND ds3.is_test = false ' +
-          'AND ds3.contributor_id = :cid' +
-          ')' +
-          ')',
-        {
-          cid: contributor_id,
-          approvedStatus: DataSetStatus.APPROVED,
-        },
-      )
-      .select('task.id', 'id')
-      .addSelect('task.name', 'name')
-      .addSelect('taskType.task_type', 'task_type')
-      // include task type ,
-      .addSelect('COUNT(DISTINCT microTask.id)', 'total_count') // count datasets
-      .addSelect('MAX(dataset.created_date)', 'last_submission_date')
-      .groupBy('task.id')
-      .addGroupBy('task.name')
-      .addGroupBy('taskType.task_type')
-      .orderBy('last_submission_date', 'DESC');
-
-    const results = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getRawMany();
-    const countQb = this.taskRepository
-      .createQueryBuilder('task')
-      .innerJoin('task.microTasks', 'microTask', 'microTask.is_test=false')
-      .innerJoin('microTask.dataSets', 'dataset')
-      .where('dataset.contributor_id = :cid', { cid: contributor_id })
-      // .andWhere(
-      //   'NOT EXISTS (' +
-      //     'SELECT 1 FROM data_set ds ' +
-      //     'WHERE ds.micro_task_id = microTask.id ' +
-      //     'AND ds.contributor_id = :cid ' +
-      //     'AND ds.status IN (:...badStatuses)' +
-      //   ')',
-      //   {
-      //     cid: contributor_id,
-      //     badStatuses: [
-      //       DataSetStatus.PENDING,
-      //       DataSetStatus.Flagged,
-      //       DataSetStatus.REJECTED,
-      //     ],
-      //   },
-      // )
-      .andWhere(
-        'EXISTS (' +
-          'SELECT 1 FROM data_set ds ' +
-          'WHERE ds.micro_task_id = microTask.id ' +
-          'AND ds.contributor_id = :cid ' +
-          'AND ds.status = :approvedStatus' +
-          ')',
-        {
-          cid: contributor_id,
-          approvedStatus: DataSetStatus.APPROVED,
-        },
-      )
-      .andWhere(
-        'NOT EXISTS (' +
-          'SELECT 1 FROM micro_task mt ' +
-          'WHERE mt.task_id = task.id ' +
-          'AND NOT EXISTS (' +
-          'SELECT 1 FROM data_set ds2 ' +
-          'WHERE ds2.micro_task_id = mt.id ' +
-          'AND ds2.contributor_id = :cid ' +
-          'AND ds2.status = :approvedStatus' +
-          ') ' +
-          'AND EXISTS (' +
-          'SELECT 1 FROM data_set ds3 ' +
-          'WHERE ds3.micro_task_id = mt.id ' +
-          'AND ds3.contributor_id = :cid' +
-          ')' +
-          ')',
-        {
-          cid: contributor_id,
-          approvedStatus: DataSetStatus.APPROVED,
-        },
-      )
-      .select('COUNT(DISTINCT task.id)', 'total');
-    const { total } = await countQb.getRawOne();
-    return paginate(results, total, page, limit);
+    return this.userTaskService.getUserTasks(user_id, paginationDto);
   }
   /**
    * Retrieves the contributor submissions for a given contributor.
@@ -1282,7 +1255,7 @@ export class TaskService {
    * @param {PaginationDto} paginationDto - pagination info
    * @returns A promise resolving to a paginated result of contributor submissions.
    */
-  async getContributorSubmissionsV2(
+  async getContributorSubmissions(
     contributor_id: string,
     paginationDto: PaginationDto,
   ): Promise<PaginatedResult<ContributorSubmissionsDto>> {
@@ -1309,7 +1282,7 @@ export class TaskService {
       relations: {
         taskType: true,
         taskRequirement: true,
-        taskInstructions: true,
+        taskInstruction: true,
         microTasks: { dataSets: true },
       },
       order: { created_date: 'DESC' },
@@ -1358,15 +1331,12 @@ export class TaskService {
       );
     }
     const task_type = task.taskType;
-    const micro_task_type = task_type.task_type.split('-')[0];
-    const data_set_type = task_type.task_type.split('-')[1];
-    const compatibile_task_type = [
-      `${micro_task_type}-${data_set_type}`,
-      `${data_set_type}-${micro_task_type}`,
-    ];
-    if (micro_task_type == 'text') {
-      compatibile_task_type.push('text-text');
-    }
+    // const micro_task_type = task_type.task_type.split('-')[0];
+    // const data_set_type = task_type.task_type.split('-')[1];
+    // "audio-text" | "text-audio" | "text-text" | "image-text" | "image-audio"
+    const compatibile_task_type = this.compatibleTaskTypeForImportMicroTask(
+      task_type.task_type,
+    );
 
     const taskTypes: TaskType[] = await this.taskTypeService.findAll({
       where:
@@ -1386,6 +1356,33 @@ export class TaskService {
     return taskFilter;
     // return tasks.filter((task:Task)=>{task.id!=target_task_id});
   }
+  private compatibleTaskTypeForImportMicroTask(
+    task_type:
+      | 'audio-text'
+      | 'text-audio'
+      | 'text-text'
+      | 'image-text'
+      | 'image-audio',
+  ): string[] {
+    // "audio-text" | "text-audio" | "text-text" | "image-text" | "image-audio"
+    if (task_type == 'text-text') {
+      return ['text-text', 'audio-text', 'text-audio'];
+    }
+    if (task_type == 'text-audio') {
+      return ['text-audio', 'audio-text', 'text-text'];
+    }
+    if (task_type == 'audio-text') {
+      return ['text-audio', 'audio-text', 'text-text'];
+    }
+    if (task_type == 'image-text') {
+      return ['image-audio', 'image-text'];
+    }
+    if (task_type == 'image-audio') {
+      return ['image-text', 'image-audio'];
+    } else {
+      return [];
+    }
+  }
   async count(queryOption: QueryOptions<Task>): Promise<number> {
     const total_projects: number = await this.taskRepository.count(queryOption);
     return total_projects;
@@ -1403,7 +1400,7 @@ export class TaskService {
    */
   async findTaskUnAssignedUsers(
     taskId: string,
-    role: 'Contributor' | 'Facilitator' | 'Reviewer',
+    role: 'Contributor' | 'Facilitator' | 'Reviewer' | 'QualityAssurance',
     userFilterDto: FindOptionsWhere<User> | FindOptionsWhere<User>[],
     paginationDto: PaginationDto,
   ): Promise<PaginatedResult<User>> {
@@ -1423,11 +1420,6 @@ export class TaskService {
           const d = { ...filter, id: Not(In(memberUserIds)) };
           userFilter.push(d);
         }
-
-        // userFilterDto=userFilterDto.map((filter) => ({
-        //   ...filter,
-        //   id: Not(In(memberUserIds)),  //  Exclude members
-        // }));
       }
     }
     if (role == 'Contributor') {
@@ -1446,6 +1438,13 @@ export class TaskService {
       );
     } else if (role == 'Reviewer') {
       return this.userService.findReviewersPaginate(
+        {
+          where: userFilterDto,
+        },
+        paginationDto,
+      );
+    } else if (role == 'QualityAssurance') {
+      return this.userService.findQAsPaginate(
         {
           where: userFilterDto,
         },
@@ -1484,7 +1483,7 @@ export class TaskService {
       .createQueryBuilder('task')
       .leftJoinAndSelect('task.taskRequirement', 'taskRequirement')
       .leftJoinAndSelect('task.taskType', 'taskType')
-      .leftJoinAndSelect('task.taskInstructions', 'taskInstructions')
+      .leftJoinAndSelect('task.taskInstruction', 'taskInstruction')
       .where('task.id IN (:...filteredTaskIds)', { filteredTaskIds })
       .andWhere(
         `NOT EXISTS (
@@ -1501,5 +1500,112 @@ export class TaskService {
       .take(limit)
       .getManyAndCount();
     return paginate(tasks, count, page, limit);
+  }
+  async getReviewerTasks(
+    reviewerId: string,
+    paginationDto: PaginationDto,
+  ): Promise<PaginatedResult<Task>> {
+    const page = paginationDto.page || 1;
+    const limit = paginationDto.limit || 10;
+    const skip = (page - 1) * limit;
+    const allTasks = await this.taskRepository
+      .createQueryBuilder('task')
+      .innerJoin('task.taskType', 'taskType')
+      .innerJoin('task.microTasks', 'microTask')
+      .innerJoin('task.taskRequirement', 'taskRequirement')
+      .leftJoin('task.reviewerInstruction', 'reviewerInstruction')
+      .innerJoin('task.payment', 'payment')
+      .innerJoin('microTask.dataSets', 'dataSet')
+      .innerJoin('dataSet.dataSetReviews', 'r', 'r.reviewer_id = :reviewerId')
+      .where('task.is_archived = false')
+      // only tasks where reviewer has approved and not expired review
+      .andWhere((qb) => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('data_set_review', 'r2') // use different alias to avoid confusion
+          .innerJoin('data_set', 'ds', 'ds.id = r2.data_set_id')
+          .innerJoin('micro_task', 'mt', 'mt.id = ds.micro_task_id')
+          .where('mt.task_id = task.id')
+          .andWhere('r2.reviewer_id = :reviewerId')
+          .andWhere('r2.expires_at > NOW()')
+          .andWhere('r2.is_expired = false')
+          .getQuery();
+
+        return `EXISTS ${subQuery}`;
+      })
+
+      // count pending reviews per task
+
+      .select([
+        'task.id AS id',
+        'task.name AS name',
+        'task.description AS description',
+        'task.created_date AS created_date',
+        'task.updated_date AS updated_date',
+        'taskType.id AS task_type_id',
+        'taskType.task_type AS task_type',
+        'taskRequirement.dialects AS dialects',
+        'payment.reviewer_credit_per_microtask AS reviewer_credit_per_microtask',
+        'reviewerInstruction.id AS reviewer_instruction_id',
+        'reviewerInstruction.title AS title',
+        'reviewerInstruction.content AS content',
+        'reviewerInstruction.image_instruction_url AS image_instruction_url',
+        'reviewerInstruction.video_instruction_url AS video_instruction_url',
+        'reviewerInstruction.audio_instruction_url AS audio_instruction_url',
+      ])
+      // .addSelect('taskType.task_type')
+
+      .addSelect(
+        `
+    COUNT(
+      CASE 
+        WHEN r.status = 'pending'
+        AND r.expires_at > NOW()
+        AND r.is_expired = false
+        THEN 1
+      END
+    )
+  `,
+        'pending_reviews_count',
+      )
+      .addSelect(
+        `
+  COUNT(
+    CASE 
+      WHEN (
+        -- pending and not expired
+        (r.status = 'pending'
+         AND r.expires_at > NOW()
+         AND r.is_expired = false)
+
+        -- OR already reviewed
+        OR r.status IN ('approved', 'rejected')
+      )
+      THEN 1
+    END
+  )
+  `,
+        'total_reviews_count',
+      )
+
+      // get all reviews
+      .groupBy('task.id')
+      .addGroupBy('taskType.id')
+      .addGroupBy('reviewerInstruction.id')
+      .addGroupBy('taskRequirement.dialects')
+      .addGroupBy('payment.reviewer_credit_per_microtask')
+      .setParameters({
+        reviewerId,
+      })
+      // .skip(skip)
+      // .take(limit)
+      .getRawMany();
+    if (!allTasks || allTasks.length === 0 || allTasks.length < skip) {
+      return paginate([], 0, 0, 0);
+    }
+    const tasks = allTasks.slice(skip, skip + limit);
+    const total = allTasks.length;
+    return paginate(tasks, total, page, limit);
   }
 }

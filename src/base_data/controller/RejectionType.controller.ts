@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -26,11 +25,12 @@ import {
   UpdateRejectionTypeDto,
 } from '../dto/RejectionType.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { PaginatedResult } from 'src/utils/paginate.util';
 import { RejectionTypeSanitized } from '../sanitize';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/rejection-type')
 @ApiTags('Rejection Type')
 @ApiBearerAuth()
@@ -39,7 +39,7 @@ export class RejectionTypeController {
   constructor(private readonly rejectionTypeService: RejectionTypeService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
+  @Roles(Role.SUPER_ADMIN)
   async create(
     @Body() rejectionTypeData: CreateRejectionTypeDto,
     @Request() req,
@@ -72,30 +72,28 @@ export class RejectionTypeController {
   })
   async findPaginate(@Query() paginationDto: PaginationDto) {
     const data = await this.rejectionTypeService.findPaginate(paginationDto);
-    return {
-      ...data,
-      result: data.result.map((item) => RejectionTypeSanitized.from(item)),
-    };
+    return data;
   }
 
   @Get()
   @ApiResponse({
     type: [RejectionTypeSanitized],
   })
-  @UsePipes(new ZodValidationPipe())
-  async findAll(@Query() query: UpdateRejectionTypeDto) {
-    const data = await this.rejectionTypeService.findAll(query);
-    return data.map((item) => RejectionTypeSanitized.from(item));
+  async findAll(@Request() req) {
+    const data = await this.rejectionTypeService.findAll({});
+    const user = req.user;
+    return data.map((item) =>
+      RejectionTypeSanitized.from(item, user.preferred_language),
+    );
   }
 
   @Get(':id')
-  @UsePipes(new ZodValidationPipe())
   async findOne(@Param('id') id: string) {
     return this.rejectionTypeService.findOne({ id });
   }
 
   @Put(':id')
-  @UsePipes(new ZodValidationPipe())
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() rejectionTypeData: UpdateRejectionTypeDto,
@@ -107,8 +105,30 @@ export class RejectionTypeController {
     });
   }
 
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.rejectionTypeService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.rejectionTypeService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
+
   @Delete(':id')
-  @UsePipes(new ZodValidationPipe())
+  @Roles(Role.SUPER_ADMIN)
   async delete(@Param('id') id: string) {
     return this.rejectionTypeService.remove(id);
   }

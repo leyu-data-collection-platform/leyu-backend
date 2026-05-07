@@ -3,7 +3,6 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -17,7 +16,6 @@ export class ActivityLogs {
   @Column()
   user_id: string;
   @ManyToOne(() => User, (user) => user.activityLogs)
-  @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column()

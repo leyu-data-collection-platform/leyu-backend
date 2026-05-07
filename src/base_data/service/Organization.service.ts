@@ -50,6 +50,62 @@ export class OrganizationService {
     }
   }
 
+  async addAlternativeName(
+    id: number,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Organization> {
+    const organization = await this.organizationRepository.findOne({
+      where: { id },
+    });
+    if (!organization) {
+      throw new BadRequestException('Organization not found');
+    }
+    if (organization.alternative_names == null) {
+      organization.alternative_names = [];
+    }
+    if (organization.alternative_names.some((alt) => alt.key === languageKey)) {
+      throw new BadRequestException('Language already exists');
+    }
+    organization.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.organizationRepository.save(organization);
+  }
+
+  async updateAlternativeName(
+    id: number,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Organization> {
+    const annotationType = await this.organizationRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.organizationRepository.save(annotationType);
+  }
+
   async create(
     organizationData: Partial<Organization>,
     queryRunner?: QueryRunner,

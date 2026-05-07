@@ -88,7 +88,6 @@ export class ImportMicroTaskFromOtherTaskDto {
   from_data_set: boolean;
 }
 
-// export class UpdateMicroTaskDto extends createZodDto(updateMicroTaskSchema) {}
 export class UpdateMicroTaskDto {
   @ApiPropertyOptional({ description: 'The text content of the micro task' })
   @IsOptional()

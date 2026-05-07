@@ -1,225 +1,561 @@
 import { InjectRepository } from '@nestjs/typeorm';
-import { ReviewerTasks } from '../enitities/ReviewerTasks.entity';
-import { LessThan, MoreThan, QueryRunner, Repository } from 'typeorm';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { Task } from 'src/project/entities/Task.entity';
+import {
+  FindOptionsWhere,
+  In,
+  MoreThan,
+  QueryRunner,
+  Repository,
+} from 'typeorm';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { DataSet } from 'src/data_set/entities/DataSet.entity';
-import { randomUUID } from 'crypto';
-import { NotificationService } from 'src/common/service/Notification.service';
-
+import { DataSetReview } from '../enitities/DataSetReview.entity';
+import { paginate, PaginatedResult } from 'src/utils/paginate.util';
+import { FindReviewerDataSetDto } from 'src/data_set/dto/DataSet.dto';
+import { DataSetService } from 'src/data_set/service/DataSet.service';
+import { TaskService } from 'src/project/service/Task.service';
+import { TaskDataSetReviewerDistributionRto } from '../rto/TaskMonitoring.rto';
+import { taskTypes } from 'src/utils/constants/Task.constant';
+import { UserTaskService } from 'src/project/service/UserTask.service';
+import { FileService } from 'src/common/service/File.service';
+import { RejectionReasonService } from 'src/data_set/service/RejectionReason.service';
+import { DataSetAnnotationService } from 'src/base_data/service/DataSetAnnotation.service';
+import { Task } from 'src/project/entities/Task.entity';
+import { PaginationDto } from 'src/common/dto/Pagination.dto';
+import { ReviewDetailRto } from '../dto/DataSet.dto';
+import { GetQAMicroTasksDto } from '../dto/Task.dto';
+import { UserScoreService } from 'src/auth/service/UserScore.service';
+import { ReviewerScore } from 'src/utils/constants/ActionScore.contant';
+import { DataSetDetailRto } from 'src/data_set/rto/DataSet.rto';
+export class DataSetWithReviewInfo extends DataSet {
+  data_set_review_id: string;
+  review_status: string;
+}
 @Injectable()
 export class ReviewerTaskService {
   constructor(
-    @InjectRepository(ReviewerTasks)
-    private readonly reviewerTaskRepository: Repository<ReviewerTasks>,
-    private readonly notificationService: NotificationService,
+    @InjectRepository(DataSetReview)
+    private readonly dataSetReviewRepository: Repository<DataSetReview>,
+
+    private readonly userScoreService: UserScoreService,
+    private readonly dataSetService: DataSetService,
+    private readonly taskService: TaskService,
+    private readonly userTaskService: UserTaskService,
+    private readonly fileService: FileService,
+    private readonly rejectionService: RejectionReasonService,
+    private readonly dataSetAnnotationService: DataSetAnnotationService,
   ) {}
-
-  async getReviewerTasks(
-    reviewerId: string,
+  async getReviewerTaskAssignments(
     taskId: string,
-  ): Promise<string[]> {
-    const tasks: ReviewerTasks | null =
-      await this.reviewerTaskRepository.findOne({
-        where: { reviewer_id: reviewerId, task_id: taskId },
-      });
-    if (tasks) {
-      return tasks.data_set_ids;
-    }
-    return [];
-  }
-  /**
-   * Returns all the tasks assigned to a reviewer
-   * @param reviewerId the id of the reviewer
-   * @returns an array of tasks assigned to the reviewer
-   */
-  async getAssignedTasks(taskId: string) {
-    const tasks: ReviewerTasks[] = await this.reviewerTaskRepository.find({
-      where: { task_id: taskId },
-    });
-    if (tasks) {
-      let assignedDataSets: string[] = [];
-      for (const task of tasks) {
-        assignedDataSets = [...assignedDataSets, ...task.data_set_ids];
-      }
-      return assignedDataSets;
-    }
-    return [];
-  }
-
-  /**
-   * Removes a data set from the reviewer's tasks and updates the reviewer's wallet and the contributor's user task status.
-   * @throws UnauthorizedException If the reviewer is not assigned to this task.
-   * @throws UnauthorizedException If the reviewer is not assigned to this data set.
-   */
-  async checkAndRemoveDataSetFromReviewer(
     reviewerId: string,
-    taskId: string,
-    dataSetId: string,
-    queryRunner: QueryRunner,
-  ): Promise<void> {
-    const reviewerTask = await this.reviewerTaskRepository.findOne({
-      where: {
-        reviewer_id: reviewerId,
-        task_id: taskId,
-      },
-    });
-    if (!reviewerTask) {
-      throw new UnauthorizedException('Reviewer is not assigned to this task');
-    }
-    const reviewerDataSetIds = reviewerTask.data_set_ids;
-    if (!reviewerDataSetIds.includes(dataSetId)) {
-      throw new UnauthorizedException('Reviewer is not assigned to this task');
-    }
-    const manager = queryRunner.manager;
-    const leftDataSets = reviewerTask.data_set_ids.filter(
-      (d) => d !== dataSetId,
-    );
-    await manager.update(
-      ReviewerTasks,
-      { id: reviewerTask.id },
-      { data_set_ids: leftDataSets },
-    );
-    return;
-  }
-
-  /**
-   * Distributes pending task data sets among reviewers while respecting
-   * reviewer limits, previously reviewed data, and existing active assignments.
-   *
-   * This method:
-   * - Loads existing (non-expired) reviewer assignments for the task
-   * - Creates reviewer-task records for reviewers without active assignments
-   * - Determines unassigned data sets
-   * - Assigns data sets to reviewers up to the maximum allowed per reviewer
-   * - Avoids reassigning already reviewed or assigned data sets
-   * - Persists reviewer assignments
-   * - Sends notifications to reviewers for newly assigned submissions
-   *
-   * Assignment rules:
-   * - A reviewer cannot exceed `max_dataset_per_reviewer`
-   * - Previously reviewed submissions count toward the limit
-   * - Only pending and unassigned data sets are distributed
-   * - Assignments stop once all pending data sets are allocated
-   *
-   * @param {Task} task
-   *  The task for which data sets are being distributed.
-   *
-   * @param {string[]} allPendingDataSetIds
-   *  List of IDs representing all pending (unassigned) data sets.
-   *
-   * @param {DataSet[]} reviewedDataSets
-   *  Data sets that have already been reviewed, used to calculate reviewer capacity.
-   *
-   * @param {string[]} reviewerIds
-   *  List of reviewer user IDs eligible to receive assignments.
-   *
-   * @returns {Promise<void>}
-   *  Resolves once assignments are saved and notifications are sent.
-   */
-  async distributeTaskForReviewers(
-    task: Task,
-    allPendingDataSetIds: string[],
-    reviewedDataSets: DataSet[],
-    reviewerIds: string[],
-  ) {
-    const allReviewerAssignedDataSets = await this.reviewerTaskRepository.find({
-      where: {
-        task_id: task.id,
-        expire_date: MoreThan(new Date()),
-      },
-    });
-    let reviewerAssignedDataSets: ReviewerTasks[] = [];
-    reviewerAssignedDataSets = [...allReviewerAssignedDataSets];
-    for (let index = 0; index < reviewerIds.length; index++) {
-      if (
-        !reviewerAssignedDataSets.find(
-          (rT) => rT.reviewer_id == reviewerIds[index],
-        )
-      ) {
-        const reviewerTask = new ReviewerTasks();
-        reviewerTask.id = randomUUID();
-        reviewerTask.task_id = task.id;
-        reviewerTask.reviewer_id = reviewerIds[index];
-        reviewerTask.data_set_ids = [];
-        reviewerTask.expire_date = new Date(
-          Date.now() +
-            task.reviewer_completion_time_limit * 24 * 60 * 60 * 1000,
-        );
-        reviewerAssignedDataSets.push(reviewerTask);
-      }
-    }
-
-    const allAssignedDataSets = allReviewerAssignedDataSets
-      .map((r) => r.data_set_ids)
-      .flat();
-    const unAssignedDataSets = allPendingDataSetIds.filter(
-      (d) => !allAssignedDataSets.includes(d),
-    );
-    const maxDataSetPerReviewer = task.taskRequirement.max_dataset_per_reviewer;
-    let start = 0;
-    const title = 'New Task Assignment';
-    const notifications: {
-      user_id: string;
-      message: string;
-    }[] = [];
-    for (const reviewerAssignedDataSet of reviewerAssignedDataSets) {
-      const totalUserReviewedDataSets = reviewedDataSets.filter(
-        (dS) => dS.reviewer_id == reviewerAssignedDataSet.reviewer_id,
-      ).length;
-
-      const canBeAssigned =
-        maxDataSetPerReviewer -
-        (totalUserReviewedDataSets +
-          reviewerAssignedDataSet.data_set_ids.length);
-      if (canBeAssigned <= 0) {
-        continue;
-      }
-      const maxCutIndex = Math.min(
-        unAssignedDataSets.length,
-        start + canBeAssigned,
-      );
-      const newDataSetIds = unAssignedDataSets.slice(start, maxCutIndex);
-      start += maxCutIndex;
-      const dataSetIds = [
-        ...new Set([...reviewerAssignedDataSet.data_set_ids, ...newDataSetIds]),
+    query: FindReviewerDataSetDto,
+  ): Promise<PaginatedResult<DataSetWithReviewInfo>> {
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const skip = (page - 1) * limit;
+    let where:
+      | FindOptionsWhere<DataSetReview>
+      | FindOptionsWhere<DataSetReview>[] = {
+      task_id: taskId,
+      reviewer_id: reviewerId,
+    };
+    if (query.status === 'Pending') {
+      // Unexpired reviewer tasks (no status filter needed if pending is default)
+      where.status = 'pending';
+      where.expires_at = MoreThan(new Date());
+    } else if (query.status === 'Approved') {
+      where.status = 'approved';
+    } else if (query.status === 'Rejected') {
+      where.status = 'rejected';
+    } else if (query.status === 'Flagged') {
+      where.status = 'rejected';
+      where.is_flagged = true;
+    } else {
+      where = [
+        {
+          task_id: taskId,
+          reviewer_id: reviewerId,
+          status: 'pending',
+          expires_at: MoreThan(new Date()),
+        },
+        {
+          task_id: taskId,
+          reviewer_id: reviewerId,
+          status: 'approved',
+        },
+        {
+          task_id: taskId,
+          reviewer_id: reviewerId,
+          status: 'rejected',
+        },
       ];
-      reviewerAssignedDataSet.data_set_ids = dataSetIds;
-
-      const message = `You have been assigned ${newDataSetIds.length} submissions to review  on task ${task.name}. Please login to your account to start working on it.`;
-      if (start >= unAssignedDataSets.length) break;
-
-      notifications.push({
-        user_id: reviewerAssignedDataSet.reviewer_id,
-        message: message,
-      });
     }
-    reviewerAssignedDataSets = reviewerAssignedDataSets.filter(
-      (rT) => rT.data_set_ids.length > 0,
-    );
-    await this.reviewerTaskRepository.save(reviewerAssignedDataSets);
-    await Promise.all(
-      notifications.map(async (notification) => {
-        await this.notificationService.create({
-          user_id: notification.user_id,
-          title,
-          message: notification.message,
-          type: 'task-assign',
-        });
-      }),
+
+    const [tasks, total] = await this.dataSetReviewRepository.findAndCount({
+      where: where,
+      relations: {
+        dataSet: { microTask: true },
+      },
+      skip: skip,
+      take: limit,
+    });
+    console.log(tasks.map((t) => ({ ...t.dataSet })));
+    return paginate<DataSetWithReviewInfo>(
+      tasks.map((t) => ({
+        ...t.dataSet,
+        data_set_review_id: t.id,
+        review_status: t.status,
+      })),
+      total,
+      page,
+      limit,
     );
   }
-
-  @Cron(CronExpression.EVERY_DAY_AT_11PM)
-  /**
-   * Delete expired tasks from the reviewer task repository.
-   * @param {expireDate} the date before which all tasks should be deleted.
-   * @return {Promise<void>} The promise that resolves when all tasks are deleted.
-   */
-  async deleteExpiredTasks() {
-    return this.reviewerTaskRepository.delete({
-      expire_date: LessThan(new Date()),
+  async getTaskDataSetReviewStats(
+    taskId: string,
+  ): Promise<TaskDataSetReviewerDistributionRto> {
+    const task = await this.taskService.findOne({
+      where: { id: taskId },
+      relations: { taskRequirement: true },
     });
+    if (!task) {
+      throw new UnauthorizedException('Task not found');
+    }
+    return this.dataSetService.getTaskDataSetReviewStats(
+      taskId,
+      task.taskRequirement.max_reviewer_per_dataset,
+    );
+  }
+  async getReviewerTasksWithPresignedUrl(
+    task_id: string,
+    user_id: string,
+    query: FindReviewerDataSetDto,
+  ): Promise<PaginatedResult<DataSetWithReviewInfo>> {
+    const userTask = await this.userTaskService.findOne({
+      where: { user_id: user_id, task_id: task_id },
+      relations: { user: true, task: { taskType: true } },
+    });
+    if (!userTask) {
+      throw new UnauthorizedException(`User is not assigned to the task`);
+    }
+    const reviewerId = user_id;
+    const task = userTask.task;
+    // const
+    // get datasets from redis if exists
+    const dataSets = await this.getReviewerTaskAssignments(
+      task_id,
+      reviewerId,
+      query,
+    );
+    if (
+      [taskTypes.TEXT_TO_AUDIO, taskTypes.IMAGE_TO_AUDIO].indexOf(
+        task?.taskType?.task_type || '',
+      ) !== -1
+    ) {
+      for (const dataset of dataSets.result) {
+        await this.fileService.setPreSignedDatasets(dataset);
+      }
+    }
+    if (
+      [
+        taskTypes.AUDIO_TO_TEXT,
+        taskTypes.IMAGE_TO_TEXT,
+        taskTypes.IMAGE_TO_AUDIO,
+      ].indexOf(task?.taskType?.task_type || '') !== -1
+    ) {
+      for (const dataset of dataSets.result) {
+        dataset.microTask.file_path = await this.fileService.getPreSignedUrl(
+          dataset.microTask.file_path,
+        );
+      }
+    }
+    return dataSets;
+  }
+  /**
+   * Rejects a data set and updates the reviewer's wallet and the contributor's user task status.
+   * @param id The id of the data set to reject.
+   * @param rejectionReason The reason for rejecting the data set.
+   * @param reviewer_id The id of the reviewer who is rejecting the data set.
+   * @param queryRunner The query runner to use when updating the database.
+   * @param is_flagged Whether the data set is flagged or not.
+   * @returns A promise resolving to the rejected data set if successful.
+   * @throws BadRequestException If the data set is already rejected.
+   * @throws NotFoundException If the data set is not found.
+   * @throws BadRequestException If the reviewer is not a member of the task.
+   */
+  async rejectDataSet(
+    dataSetReviewId: string,
+    rejectionReasons: {
+      data_set_review_id: string;
+      rejection_type_id: string;
+    }[],
+    reviewerId: string,
+    queryRunner: QueryRunner,
+    is_flagged?: boolean,
+    comment?: string,
+  ): Promise<string> {
+    const manager = queryRunner.manager;
+    const dataSetReview = await manager.findOne(DataSetReview, {
+      where: { id: dataSetReviewId, reviewer_id: reviewerId },
+      relations: { dataSet: { microTask: { task: true } } },
+    });
+    const now = new Date();
+    if (!dataSetReview || dataSetReview.expires_at < now) {
+      throw new NotFoundException('Dataset not found or expired');
+    }
+    if (dataSetReview.status !== 'pending') {
+      throw new BadRequestException('data set already rejected');
+    }
+    await manager.update(DataSetReview, dataSetReviewId, {
+      status: 'rejected',
+      is_flagged: is_flagged ? true : false,
+      reviewed_at: now,
+      comment: comment,
+    });
+    await this.rejectionService.createBulk(
+      rejectionReasons.map((r) => ({
+        ...r,
+        data_set_id: dataSetReview.data_set_id,
+      })),
+      queryRunner,
+    );
+    return 'DataSet Rejected Successfully';
+  }
+
+  /**
+   * Approves a data set.
+   *
+   * @param id - id of the data set.
+   * @param reviewer_id - id of the reviewer.
+   * @param queryRunner - query runner object.
+   * @param annotation - annotation of the data set.
+   * @returns nothing if the data set is approved successfully.
+   * @throws NotFoundException - if the data set is not found.
+   * @throws BadRequestException - if the data set is already approved or rejected, or if the annotation is not found.
+   */
+  async approveDataSet(
+    dataSetReviewId: string,
+    reviewerId: string,
+    queryRunner: QueryRunner,
+    annotationIds?: string[],
+  ): Promise<void> {
+    const manager = queryRunner.manager;
+
+    const dataSetReview = await manager.findOne(DataSetReview, {
+      where: { id: dataSetReviewId, reviewer_id: reviewerId },
+      relations: { dataSet: { microTask: { task: true } } },
+    });
+
+    const now = new Date();
+
+    if (!dataSetReview || dataSetReview.expires_at < now) {
+      throw new NotFoundException('Dataset not found or expired');
+    }
+
+    if (dataSetReview.status !== 'pending') {
+      throw new BadRequestException('data set already rejected');
+    }
+
+    // update normal columns
+    await manager.update(DataSetReview, dataSetReviewId, {
+      status: 'approved',
+      reviewed_at: now,
+    });
+
+    // attach annotations
+    if (annotationIds?.length) {
+      await manager
+        .createQueryBuilder()
+        .relation(DataSetReview, 'annotations')
+        .of(dataSetReviewId)
+        .add(annotationIds);
+    }
+  }
+
+  async countByOptions(
+    options: FindOptionsWhere<DataSetReview>,
+  ): Promise<number> {
+    return await this.dataSetReviewRepository.count({ where: options });
+  }
+  async getReviewDetail(review_id: string): Promise<ReviewDetailRto> {
+    const review = await this.dataSetReviewRepository.findOne({
+      where: { id: review_id },
+      relations: { rejectionReasons: true, dataSet: { microTask: true } },
+    });
+    if (!review) {
+      throw new NotFoundException('Review not found');
+    }
+    if (review.dataSet.type == 'audio' || review.dataSet.type == 'image') {
+      review.dataSet.file_path = await this.fileService.getPreSignedUrl(
+        review.dataSet.file_path,
+      );
+    }
+    if (
+      review.dataSet.microTask.type == 'audio' ||
+      review.dataSet.microTask.type == 'image'
+    ) {
+      review.dataSet.microTask.file_path =
+        await this.fileService.getPreSignedUrl(
+          review.dataSet.microTask.file_path,
+        );
+    }
+    return ReviewDetailRto.from(review);
+  }
+
+  async rejectByProjectManager(
+    dataSetId: string,
+    rejectionTypeIds: string[],
+    reviewerId: string,
+    queryRunner: QueryRunner,
+    is_flagged?: boolean,
+    comment?: string,
+  ): Promise<string> {
+    const manager = queryRunner.manager;
+    const dataSet = await this.dataSetService.findOne({
+      where: { id: dataSetId },
+      relations: { microTask: { task: true } },
+    });
+    if (!dataSet) {
+      throw new NotFoundException('Dataset not found');
+    }
+    await this.dataSetService.update(
+      dataSetId,
+      { status: 'Rejected' },
+      queryRunner,
+    );
+    const now = new Date();
+
+    const reviewData = manager.create(DataSetReview, {
+      data_set_id: dataSetId,
+      task_id: dataSet.microTask.task_id,
+      reviewer_id: reviewerId,
+      status: 'rejected',
+      is_flagged: is_flagged ? true : false,
+      reviewed_at: now,
+      expires_at: now,
+      comment: comment,
+    });
+    const dataSetReview = await manager.save(DataSetReview, reviewData);
+    await this.rejectionService.createBulk(
+      rejectionTypeIds.map((r) => ({
+        data_set_id: dataSetId,
+        data_set_review_id: dataSetReview.id,
+        rejection_type_id: r,
+      })),
+      queryRunner,
+    );
+    // // add reviewer score
+
+    return 'DataSet Rejected Successfully';
+  }
+
+  /**
+   * Approves a data set.
+   *
+   * @param id - id of the data set.
+   * @param reviewer_id - id of the reviewer.
+   * @param queryRunner - query runner object.
+   * @param annotation - annotation of the data set.
+   * @returns nothing if the data set is approved successfully.
+   * @throws NotFoundException - if the data set is not found.
+   * @throws BadRequestException - if the data set is already approved or rejected, or if the annotation is not found.
+   */
+  async approveDataSetProjectManager(
+    dataSetId: string,
+    reviewerId: string,
+    queryRunner: QueryRunner,
+    annotationIds?: string[],
+  ): Promise<string> {
+    const manager = queryRunner.manager;
+    const annotations = annotationIds
+      ? await this.dataSetAnnotationService.findAll({ id: In(annotationIds) })
+      : [];
+    const now = new Date();
+    const dataSet = await this.dataSetService.findOne({
+      where: { id: dataSetId },
+      relations: { microTask: { task: true } },
+    });
+    if (!dataSet) {
+      throw new NotFoundException('Dataset not found');
+    }
+    await this.dataSetService.update(
+      dataSetId,
+      { status: 'Approved' },
+      queryRunner,
+    );
+    const reviewData = manager.create(DataSetReview, {
+      data_set_id: dataSetId,
+      task_id: dataSet.microTask.task_id,
+      reviewer_id: reviewerId,
+      status: 'approved',
+      reviewed_at: now,
+      expires_at: now,
+    });
+    const savedReview = await manager.save(DataSetReview, reviewData);
+
+    if (annotations.length) {
+      savedReview.annotations = annotations;
+      await manager.save(savedReview);
+    }
+    await manager.save(DataSetReview, reviewData);
+    // add reviewer score
+    return 'DataSet Approved Successfully';
+  }
+
+  async rejectByQA(
+    dataSetId: string,
+    rejectionTypeIds: string[],
+    reviewerId: string,
+    queryRunner: QueryRunner,
+    is_flagged?: boolean,
+    comment?: string,
+  ): Promise<string> {
+    const manager = queryRunner.manager;
+    const dataSet = await this.dataSetService.findOne({
+      where: { id: dataSetId },
+      relations: { microTask: { task: true }, dataSetReviews: true },
+    });
+    if (!dataSet) {
+      throw new NotFoundException('Dataset not found');
+    }
+    if (dataSet.qa_review_status == 'Approved') {
+      throw new BadRequestException('Dataset already approved');
+    }
+    if (dataSet.qa_review_status == 'Rejected') {
+      throw new BadRequestException('Dataset already rejected');
+    }
+    await this.dataSetService.update(
+      dataSetId,
+      { qa_review_status: 'Rejected', is_flagged: is_flagged ? true : false },
+      queryRunner,
+    );
+    const now = new Date();
+
+    const reviewData = manager.create(DataSetReview, {
+      data_set_id: dataSetId,
+      task_id: dataSet.microTask.task_id,
+      reviewer_id: reviewerId,
+      status: 'rejected',
+      is_flagged: is_flagged ? true : false,
+      reviewed_at: now,
+      expires_at: now,
+      comment: comment,
+    });
+    const dataSetReview = await manager.save(DataSetReview, reviewData);
+    await this.rejectionService.createBulk(
+      rejectionTypeIds.map((r) => ({
+        data_set_review_id: dataSetReview.id,
+        data_set_id: dataSetId,
+        rejection_type_id: r,
+      })),
+      queryRunner,
+    );
+    // // add reviewer score
+    const reviewsGiven = dataSet.dataSetReviews;
+    const reviewsWithScoreGiven: Map<string, number> = new Map();
+    for (const review of reviewsGiven) {
+      if (review.status == 'approved') {
+        reviewsWithScoreGiven.set(
+          review.reviewer_id,
+          ReviewerScore.INVALID_REVIEW,
+        );
+      }
+    }
+    await this.userScoreService.updateReviewersScore(
+      reviewsWithScoreGiven,
+      queryRunner,
+    );
+    return 'DataSet Rejected Successfully';
+  }
+
+  /**
+   * Approves a data set.
+   *
+   * @param id - id of the data set.
+   * @param reviewer_id - id of the reviewer.
+   * @param queryRunner - query runner object.
+   * @param annotation - annotation of the data set.
+   * @returns nothing if the data set is approved successfully.
+   * @throws NotFoundException - if the data set is not found.
+   * @throws BadRequestException - if the data set is already approved or rejected, or if the annotation is not found.
+   */
+  async approveByQA(
+    dataSetId: string,
+    reviewerId: string,
+    queryRunner: QueryRunner,
+    annotationIds?: string[],
+  ): Promise<string> {
+    const manager = queryRunner.manager;
+    const annotations = annotationIds
+      ? await this.dataSetAnnotationService.findAll({ id: In(annotationIds) })
+      : [];
+    const now = new Date();
+    const dataSet = await this.dataSetService.findOne({
+      where: { id: dataSetId },
+      relations: { microTask: { task: true }, dataSetReviews: true },
+    });
+    if (!dataSet) {
+      throw new NotFoundException('Dataset not found');
+    }
+    if (dataSet.qa_review_status == 'Approved') {
+      throw new BadRequestException('Dataset already approved');
+    }
+    if (dataSet.qa_review_status == 'Rejected') {
+      throw new BadRequestException('Dataset already rejected');
+    }
+    await this.dataSetService.update(
+      dataSetId,
+      { qa_review_status: 'Approved' },
+      queryRunner,
+    );
+    const reviewData = manager.create(DataSetReview, {
+      data_set_id: dataSetId,
+      task_id: dataSet.microTask.task_id,
+      reviewer_id: reviewerId,
+      status: 'approved',
+      reviewed_at: now,
+      expires_at: now,
+    });
+    const savedReview = await manager.save(DataSetReview, reviewData);
+
+    if (annotations.length) {
+      savedReview.annotations = annotations;
+      await manager.save(savedReview);
+    }
+    await manager.save(DataSetReview, reviewData);
+    const reviewsGiven = dataSet.dataSetReviews;
+    const reviewsWithScoreGiven: Map<string, number> = new Map();
+    for (const review of reviewsGiven) {
+      if (review.status == 'rejected') {
+        reviewsWithScoreGiven.set(
+          review.reviewer_id,
+          ReviewerScore.INVALID_REVIEW,
+        );
+      }
+    }
+    await this.userScoreService.updateReviewersScore(
+      reviewsWithScoreGiven,
+      queryRunner,
+    );
+    // add reviewer score
+    return 'DataSet Approved Successfully';
+  }
+
+  async getQATasks(
+    qaId: string,
+    paginationDto: PaginationDto,
+  ): Promise<PaginatedResult<Task>> {
+    return this.userTaskService.getQATasks(qaId, paginationDto);
+  }
+
+  async getQAReviewDataSets(
+    taskId: string,
+    payload: GetQAMicroTasksDto,
+  ): Promise<PaginatedResult<DataSetDetailRto>> {
+    return this.dataSetService.getReviewDataSetsForQA(taskId, payload);
   }
 }

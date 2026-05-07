@@ -88,6 +88,7 @@ import { AnnotationType } from './entities/AnnotationType.entity';
     ZoneService,
     DataSetAnnotationService,
     RegionService,
+    DataSetAnnotationService,
   ],
 })
 export class BaseDataModule {}

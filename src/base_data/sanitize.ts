@@ -27,10 +27,15 @@ export class AnnotationTypeSanitized {
   description: string;
   @ApiProperty()
   created_date: Date;
-  static from(annotationType: AnnotationType) {
+  static from(annotationType: AnnotationType, preferredLanguage?: string) {
     return {
       id: annotationType.id,
-      name: annotationType.name,
+      name:
+        preferredLanguage && annotationType.alternative_names
+          ? (annotationType.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? annotationType.name)
+          : annotationType.name,
       description: annotationType.description,
       created_date: annotationType.created_date,
     };
@@ -54,10 +59,15 @@ export class CountrySanitized {
   continent: string;
   @ApiProperty()
   created_date: Date;
-  static from(country: Country) {
+  static from(country: Country, preferredLanguage?: string) {
     return {
       id: country.id,
-      name: country.name,
+      name:
+        preferredLanguage && country.alternative_names
+          ? (country.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? country.name)
+          : country.name,
       code: country.code,
       continent: country.continent,
       created_date: country.created_date,
@@ -75,14 +85,29 @@ export class DataSetAnnotationSanitized {
   id: string;
   @ApiProperty()
   name: string;
+
+  @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
   @ApiProperty()
   description: string;
   @ApiProperty()
   created_date: Date;
-  static from(dataSetAnnotation: DataSetAnnotation) {
+  static from(
+    dataSetAnnotation: DataSetAnnotation,
+    preferredLanguage?: string,
+  ) {
     return {
       id: dataSetAnnotation.id,
-      name: dataSetAnnotation.name,
+      name:
+        preferredLanguage && dataSetAnnotation.alternative_names
+          ? (dataSetAnnotation.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? dataSetAnnotation.name)
+          : dataSetAnnotation.name,
+      alternative_names: dataSetAnnotation.alternative_names,
       description: dataSetAnnotation.description,
       created_date: dataSetAnnotation.created_date,
     };
@@ -96,14 +121,25 @@ export class LanguageSanitized {
   name: string;
 
   @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+  @ApiProperty()
   code: string;
 
   @ApiProperty()
   created_date: Date;
-  static from(language: Language) {
+  static from(language: Language, preferredLanguage?: string) {
     return {
       id: language.id,
-      name: language.name,
+      name:
+        preferredLanguage && language.alternative_names
+          ? (language.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? language.name)
+          : language.name,
+      alternative_names: language.alternative_names,
       code: language.code,
       created_date: language.created_date,
     };
@@ -120,15 +156,27 @@ export class DialectSanitized {
   id: string;
   @ApiProperty()
   name: string;
+
+  @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
   @ApiProperty()
   created_date: Date;
 
   @ApiProperty({ type: LanguageSanitized })
   language?: LanguageSanitized;
-  static from(dialect: Dialect) {
+  static from(dialect: Dialect, preferredLanguage?: string) {
     return {
       id: dialect.id,
-      name: dialect.name,
+      name:
+        preferredLanguage && dialect.alternative_names
+          ? dialect.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name || dialect.name
+          : dialect.name,
+      alternative_names: dialect.alternative_names,
       created_date: dialect.created_date,
       language: dialect.language && LanguageSanitized.from(dialect.language),
     };
@@ -145,6 +193,11 @@ export class FlagTypeSanitized {
   @ApiProperty()
   name: string;
   @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+  @ApiProperty()
   description: string;
   @ApiProperty()
   created_date: Date;
@@ -152,6 +205,8 @@ export class FlagTypeSanitized {
     return {
       id: flagType.id,
       name: flagType.name,
+      alternative_names: flagType.alternative_names,
+
       description: flagType.description,
       created_date: flagType.created_date,
     };
@@ -178,6 +233,11 @@ export class OrganizationSanitized {
   @ApiProperty()
   name: string;
   @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+  @ApiProperty()
   email: string;
   @ApiProperty()
   phone: string;
@@ -185,10 +245,16 @@ export class OrganizationSanitized {
   address: string;
   @ApiProperty()
   created_date: Date;
-  static from(organization: Organization) {
+  static from(organization: Organization, preferredLanguage?: string) {
     return {
       id: organization.id,
-      name: organization.name,
+      name:
+        preferredLanguage && organization.alternative_names
+          ? (organization.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? organization.name)
+          : organization.name,
+      alternative_names: organization.alternative_names,
       email: organization.email,
       phone: organization.phone,
       address: organization.address,
@@ -207,13 +273,24 @@ export class RegionSanitized {
   @ApiProperty()
   name: string;
   @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+  @ApiProperty()
   created_date: Date;
   @ApiProperty({ type: CountrySanitized })
   country?: CountrySanitized;
-  static from(region: Region) {
+  static from(region: Region, preferredLanguage?: string) {
     return {
       id: region.id,
-      name: region.name,
+      name:
+        preferredLanguage && region.alternative_names
+          ? (region.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? region.name)
+          : region.name,
+      alternative_names: region.alternative_names,
       created_date: region.created_date,
       country: region.country && CountrySanitized.from(region.country),
     };
@@ -233,10 +310,15 @@ export class RejectionTypeSanitized {
   description: string;
   @ApiProperty()
   created_date: Date;
-  static from(rejectionType: RejectionType) {
+  static from(rejectionType: RejectionType, preferredLanguage?: string) {
     return {
       id: rejectionType.id,
-      name: rejectionType.name,
+      name:
+        preferredLanguage && rejectionType.alternative_names
+          ? (rejectionType.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? rejectionType.name)
+          : rejectionType.name,
       description: rejectionType.description,
       created_date: rejectionType.created_date,
     };
@@ -255,11 +337,22 @@ export class SectorSanitized {
   name: string;
 
   @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+  @ApiProperty()
   created_date: Date;
-  static from(sector: Sector) {
+  static from(sector: Sector, preferredLanguage?: string) {
     return {
       id: sector.id,
-      name: sector.name,
+      name:
+        preferredLanguage && sector.alternative_names
+          ? (sector.alternative_names.find(
+              (alt) => alt.key === preferredLanguage,
+            )?.name ?? sector.name)
+          : sector.name,
+      alternative_names: sector.alternative_names,
       created_date: sector.created_date,
     };
   }
@@ -276,11 +369,21 @@ export class ZoneSanitized {
   @ApiProperty()
   name: string;
   @ApiProperty()
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+  @ApiProperty()
   created_date: Date;
-  static from(zone: Zone) {
+  static from(zone: Zone, preferredLanguage?: string) {
     return {
       id: zone.id,
-      name: zone.name,
+      name:
+        preferredLanguage && zone.alternative_names
+          ? (zone.alternative_names.find((alt) => alt.key === preferredLanguage)
+              ?.name ?? zone.name)
+          : zone.name,
+      alternative_names: zone.alternative_names,
       created_date: zone.created_date,
     };
   }

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FacilitatorContributor } from '../entities/FacilitatorContributor.entity';
-import { FindOptionsWhere, In, QueryRunner, Repository } from 'typeorm';
+import { In, QueryRunner, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 import { PaginationService } from 'src/common/service/pagination.service';
 import { paginate, PaginatedResult } from 'src/utils/paginate.util';
@@ -19,6 +19,7 @@ import { Role } from 'src/auth/decorators/roles.enum';
 import { UserTask } from '../entities/UserTask.entity';
 import { TaskService } from './Task.service';
 import { Task } from '../entities/Task.entity';
+import { GetFacilitatorContributorsFilterDto } from 'src/auth/dto/User.dto';
 
 export interface FacilitatorContributorDto extends FacilitatorContributor {
   contributors?: User[];
@@ -60,26 +61,32 @@ export class FacilitatorContributorService {
   ): Promise<FacilitatorContributor> {
     // const facilitatorContributor=await this.facilitatorContributorRepository.findOne({where:{task_id:task_id,facilitator_id:facilitator_id}});
     const manager = queryRunner.manager.getRepository(FacilitatorContributor);
-    let facilitatorContributor = await manager.findOne({
-      where: { task_id, facilitator_id },
-    });
-    if (facilitatorContributor) {
-      const uniqueContributors = Array.from(
-        new Set([
-          ...facilitatorContributor.contributor_ids,
-          ...contributor_ids,
-        ]),
-      );
-      facilitatorContributor.contributor_ids = uniqueContributors;
-      return await manager.save(facilitatorContributor); // ✅ use repo based on queryRunner
-    } else {
-      facilitatorContributor = manager.create({
-        task_id,
-        facilitator_id,
-        contributor_ids,
+    const facilitatorContributors =
+      await this.facilitatorContributorRepository.find({
+        where: { task_id: task_id },
+        select: { contributor_id: true },
       });
-      return await manager.save(facilitatorContributor); // ✅ same here
+    const unAssignedContributorIds = contributor_ids.filter(
+      (contributor_id) =>
+        !facilitatorContributors.some(
+          (fc) => fc.contributor_id === contributor_id,
+        ),
+    );
+    const newFacilitatorContributors: FacilitatorContributor[] =
+      unAssignedContributorIds.map((contributor_id) => {
+        const facilitatorContributor = new FacilitatorContributor();
+        facilitatorContributor.task_id = task_id;
+        facilitatorContributor.facilitator_id = facilitator_id;
+        facilitatorContributor.contributor_id = contributor_id;
+        return facilitatorContributor;
+      });
+    if (newFacilitatorContributors.length === 0) {
+      throw new BadRequestException(
+        `All contributors are already assigned to this facilitator`,
+      );
     }
+    await manager.save(newFacilitatorContributors);
+    return newFacilitatorContributors[0];
   }
   /**
    * Retrieves the ids of all contributors in a task that are not already assigned to any facilitator.
@@ -93,42 +100,34 @@ export class FacilitatorContributorService {
     const contributorIds: string[] = taskContributors.map(
       (contributor) => contributor.user_id,
     );
-    const contributorFacilitators: FacilitatorContributor[] =
-      await this.findAllTaskFacilitators(task_id);
-    console.log('Contributor Facilitators', contributorFacilitators);
+    const contributorFacilitators = await this.findAllTaskFacilitators(task_id);
     // create a net set of contributors
-    let assignedcontributorIds: Set<string> = new Set<string>();
+    const assignedContributorIds: string[] = [];
     for (const cf of contributorFacilitators) {
-      assignedcontributorIds = new Set([
-        ...assignedcontributorIds,
-        ...cf.contributor_ids,
-      ]);
+      assignedContributorIds.push(cf.contributor_id);
     }
     const unAssignedContributorIds = contributorIds.filter(
-      (contributorId) => !assignedcontributorIds.has(contributorId),
+      (contributorId) => !assignedContributorIds.includes(contributorId),
     );
     // const assigned_contributor_ids:string[]=contributor_ids_in_facilitators.map((contributor) => contributor.contributor_id);
     return unAssignedContributorIds;
   }
   /**
    * Retrieves the unassigned contributors of a task.
-   * @param task_id The id of the task.
+   * @param taskId The id of the task.
    * @param userQueryOption The query options for the users.
    * @param paginationDto The pagination options.
    * @returns A promise that resolves to a paginated result of unassigned contributors.
    */
   async getUnassignedContributors(
-    task_id: string,
-    userQueryOption: FindOptionsWhere<User> | FindOptionsWhere<User>[],
-    paginationDto: PaginationDto,
-  ): Promise<PaginatedResult<UserTask>> {
-    const unassignUserIds = await this.getUnassignedContributorIds(task_id);
-    const userOptions = { ...userQueryOption, id: In(unassignUserIds) };
-    return await this.userTaskService.findTaskMembers(
-      task_id,
-      { role: 'Contributor' },
-      userOptions,
-      paginationDto,
+    taskId: string,
+    searchQuery: GetFacilitatorContributorsFilterDto,
+  ): Promise<PaginatedResult<any>> {
+    const unassignUserIds = await this.getUnassignedContributorIds(taskId);
+    return await this.userTaskService.getUnassignedTaskContributors(
+      taskId,
+      searchQuery,
+      unassignUserIds,
     );
   }
   /**
@@ -158,70 +157,58 @@ export class FacilitatorContributorService {
         where: { task_id: task_id, role: Role.FACILITATOR },
       },
     );
+    const assignedContributorFacilitators: FacilitatorContributor[] =
+      await this.findAllTaskFacilitators(task_id);
     const unassignedContributorIds =
       await this.getUnassignedContributorIds(task_id);
-
-    const contributorFacilitator: FacilitatorContributor[] =
-      await this.facilitatorContributorRepository.find({
-        where: { task_id: task_id },
-      });
     let allContributorFacilitators: FacilitatorContributor[] = [];
-    allContributorFacilitators = [...contributorFacilitator];
+    allContributorFacilitators = [...assignedContributorFacilitators];
 
-    // create a contributorFacilitator for non existing facilitators
-    for (let index = 0; index < existingFacilitators.length; index++) {
-      // check if facilitator is in contributorFacilitator
-      const facilitator = existingFacilitators[index];
-      let facilitatorContributor = allContributorFacilitators.find(
-        (fc) => fc.facilitator_id === facilitator.user_id,
-      );
-      if (!facilitatorContributor) {
-        facilitatorContributor = new FacilitatorContributor();
-        facilitatorContributor.task_id = task_id;
-        facilitatorContributor.facilitator_id = facilitator.user_id;
-        facilitatorContributor.contributor_ids = [];
-        allContributorFacilitators.push(facilitatorContributor);
-      }
-    }
     const maxContributorPerFacilitator =
       task.taskRequirement?.max_contributor_per_facilitator || 10;
-
-    for (let i = 0; i < allContributorFacilitators.length; i++) {
-      const facilitatorContributor = allContributorFacilitators[i];
+    for (let i = 0; i < existingFacilitators.length; i++) {
+      const totalAssignedContributors = assignedContributorFacilitators.filter(
+        (fc) => fc.facilitator_id === existingFacilitators[i].user_id,
+      ).length;
 
       // Skip if this facilitator is already full
-      if (
-        facilitatorContributor.contributor_ids.length >=
-        maxContributorPerFacilitator
-      ) {
+      if (totalAssignedContributors >= maxContributorPerFacilitator) {
         continue;
       }
 
       const j = 0;
+      const currentTotalAssigned = totalAssignedContributors;
+      const facilitatorContributors: string[] = [];
       while (j < unassignedContributorIds.length) {
         // Stop if no contributors left
         if (unassignedContributorIds.length === 0) {
           break;
         }
-
         // Stop if this facilitator reached max
-        if (
-          facilitatorContributor.contributor_ids.length >=
-          maxContributorPerFacilitator
-        ) {
+        if (currentTotalAssigned >= maxContributorPerFacilitator) {
           break;
         }
 
         const contributorId = unassignedContributorIds[j];
-        facilitatorContributor.contributor_ids.push(contributorId);
+        facilitatorContributors.push(contributorId);
 
         // Remove assigned contributor
         unassignedContributorIds.splice(j, 1);
       }
 
-      // Stop if no contributors left for any facilitator
+      // Stop  if no contributors left for any facilitator
       if (unassignedContributorIds.length === 0) {
         break;
+      }
+      if (facilitatorContributors.length > 0) {
+        for (const contributor_id of facilitatorContributors) {
+          const facilitatorContributor = new FacilitatorContributor();
+          facilitatorContributor.facilitator_id =
+            existingFacilitators[i].user_id;
+          facilitatorContributor.task_id = task_id;
+          facilitatorContributor.contributor_id = contributor_id;
+          allContributorFacilitators.push(facilitatorContributor);
+        }
       }
     }
 
@@ -252,35 +239,31 @@ export class FacilitatorContributorService {
   async removeContributors(
     task_id: string,
     facilitator_id: string,
-    removeable_contributors: string[],
+    removableContributorIds: string[],
     queryRunner?: QueryRunner,
-  ): Promise<FacilitatorContributor> {
-    const facilitatorContributor =
-      await this.facilitatorContributorRepository.findOne({
+  ): Promise<void> {
+    const facilitatorContributors =
+      await this.facilitatorContributorRepository.find({
         where: { task_id: task_id, facilitator_id: facilitator_id },
       });
-    if (!facilitatorContributor) {
+    if (!facilitatorContributors || facilitatorContributors.length === 0) {
       throw new NotFoundException(`Facilitator not found`);
     }
-    const left_contributors = facilitatorContributor.contributor_ids.filter(
-      (contributor_id) => !removeable_contributors.includes(contributor_id),
-    );
     if (queryRunner) {
       const manager = queryRunner.manager;
-      const factilitator = manager.create(FacilitatorContributor, {
-        task_id,
-        facilitator_id,
-        contributor_ids: left_contributors,
+      await manager.delete(FacilitatorContributor, {
+        task_id: task_id,
+        facilitator_id: facilitator_id,
+        contributor_id: In(removableContributorIds),
       });
-      return await manager.save(FacilitatorContributor, factilitator);
+      return;
     } else {
-      const manager = this.facilitatorContributorRepository;
-      const facilitatorContributor = manager.create({
-        task_id,
-        facilitator_id,
-        contributor_ids: removeable_contributors,
+      await this.facilitatorContributorRepository.delete({
+        task_id: task_id,
+        facilitator_id: facilitator_id,
+        contributor_id: In(removableContributorIds),
       });
-      return await manager.save(facilitatorContributor);
+      return;
     }
   }
   /**
@@ -334,26 +317,25 @@ export class FacilitatorContributorService {
         `Facilitator not found or not assigned to the task`,
       );
     }
-    const facilitatorContributors: FacilitatorContributor | null =
-      await this.facilitatorContributorRepository.findOne({
-        where: { task_id: task_id, facilitator_id: facilitator_id },
-      });
+
     const page = paginationDto.page || 1;
     const limit = paginationDto.limit || 10;
-    const offset_index = (page - 1) * limit;
-    if (facilitatorContributors == null) {
-      return { result: [], total: 0, page: page, limit: limit, totalPages: 0 };
-    }
-    const total_contributors = facilitatorContributors.contributor_ids.length;
-    let endIdx = offset_index + limit;
-    endIdx = endIdx > total_contributors ? total_contributors : endIdx;
+    const skip = (page - 1) * limit;
+    const [contributors, total]: [FacilitatorContributor[], number] =
+      await this.facilitatorContributorRepository.findAndCount({
+        where: { task_id: task_id, facilitator_id: facilitator_id },
+        relations: { contributor: { score: true } },
+        order: { contributor: { first_name: 'ASC' } },
+        skip: skip,
+        take: limit,
+      });
 
-    const sliced_contributors_id: string[] =
-      facilitatorContributors.contributor_ids.slice(offset_index, endIdx);
-    const contributors: User[] = await this.userService.findMany({
-      where: { id: In(sliced_contributors_id) },
-    });
-    return paginate(contributors, total_contributors, page, limit);
+    return paginate(
+      contributors.map((fc) => fc.contributor),
+      total,
+      page,
+      limit,
+    );
   }
   /**
    * Finds the ids of all contributors assigned to a facilitator in a task.
@@ -366,11 +348,11 @@ export class FacilitatorContributorService {
     task_id: string,
     facilitator_id: string,
   ): Promise<string[]> {
-    const facilitatorContributors: FacilitatorContributor | null =
-      await this.facilitatorContributorRepository.findOne({
+    const facilitatorContributors: FacilitatorContributor[] =
+      await this.facilitatorContributorRepository.find({
         where: { task_id: task_id, facilitator_id: facilitator_id },
       });
-    return facilitatorContributors?.contributor_ids || [];
+    return facilitatorContributors.map((fc) => fc.contributor_id);
   }
   /**
    * Finds all facilitators of a task with their contributor ids.
@@ -396,24 +378,24 @@ export class FacilitatorContributorService {
   async removeContributorsFromFacilitator(
     task_id: string,
     facilitator_id: string,
-    contributor_ids: string[],
-  ) {
-    const facilitatorContributors: FacilitatorContributor | null =
-      await this.facilitatorContributorRepository.findOne({
+    removedContributorIds: string[],
+  ): Promise<any> {
+    const facilitatorContributors: FacilitatorContributor[] =
+      await this.facilitatorContributorRepository.find({
         where: { task_id: task_id, facilitator_id: facilitator_id },
       });
-    if (!facilitatorContributors) {
-      throw new NotFoundException(`Facilitator not found`);
+    if (!facilitatorContributors || facilitatorContributors.length === 0) {
+      return;
     }
-    facilitatorContributors.contributor_ids =
-      facilitatorContributors.contributor_ids.filter(
-        (contributor_id) => !contributor_ids.includes(contributor_id),
-      );
-    return await this.facilitatorContributorRepository.save(
-      facilitatorContributors,
+    const removedContributor = facilitatorContributors.filter((fc) =>
+      removedContributorIds.includes(fc.contributor_id),
     );
+    await Promise.all(removedContributor.map((fc) => this.remove(fc.id)));
+    return {
+      message: `Removed ${removedContributor.length} contributors from facilitator`,
+    };
   }
-  async remove(id: number): Promise<void> {
+  async remove(id: string): Promise<void> {
     await this.facilitatorContributorRepository.delete(id);
   }
 }

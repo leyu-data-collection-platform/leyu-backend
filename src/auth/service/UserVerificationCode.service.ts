@@ -84,4 +84,55 @@ export class UserVerificationCodeService {
       return await manager.findOne({ where: { id } });
     }
   }
+
+  /**
+   * Finds the most recent pending verification code record for a given username.
+   * @param username The username (phone number or email) to look up.
+   * @returns A promise resolving to the latest pending record, or null if none exists.
+   */
+  async findLatestPendingByUsername(
+    username: string,
+  ): Promise<UserVerificationCode | null> {
+    return await this.userVerificationCodeRepository.findOne({
+      where: { username, status: 'pending' },
+      order: { created_date: 'DESC' },
+    });
+  }
+
+  /**
+   * Increments the failed_attempts counter on a verification code record.
+   * @param id The id of the record to update.
+   * @returns A promise resolving to the updated record, or null if not found.
+   */
+  async incrementFailedAttempts(
+    id: string,
+  ): Promise<UserVerificationCode | null> {
+    await this.userVerificationCodeRepository.increment(
+      { id },
+      'failed_attempts',
+      1,
+    );
+    return await this.userVerificationCodeRepository.findOne({ where: { id } });
+  }
+
+  /**
+   * Sets the status of a verification code record to 'expired'.
+   * @param id The id of the record to expire.
+   */
+  async expireSession(id: string): Promise<void> {
+    await this.userVerificationCodeRepository.update(id, {
+      status: 'expired',
+    });
+  }
+
+  /**
+   * Sets the status of a verification code record to 'verified' and resets failed_attempts to 0.
+   * @param id The id of the record to mark as verified.
+   */
+  async markVerified(id: string): Promise<void> {
+    await this.userVerificationCodeRepository.update(id, {
+      status: 'verified',
+      failed_attempts: 0,
+    });
+  }
 }

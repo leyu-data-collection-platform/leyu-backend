@@ -20,6 +20,8 @@ import { TaskRequirement } from './TaskRequirement.entity';
 import { InvitationLink } from './InvitationLink.entity';
 import { FacilitatorContributor } from './FacilitatorContributor.entity';
 import { ReviewerTasks } from 'src/task_distribution/enitities/ReviewerTasks.entity';
+import { QATaskInstruction } from './QATaskInstruction.entity';
+import { ReviewerTaskInstruction } from './ReviewerTaskInstruction.entity';
 
 @Entity('task')
 export class Task {
@@ -107,13 +109,20 @@ export class Task {
   // users: User[]
 
   @OneToMany(() => UserTask, (userTask) => userTask.task)
-  @JoinColumn({ name: 'task_id' })
   userToTasks: UserTask[];
 
   // Task has Many Task Instruction
-  @OneToMany(() => TaskInstruction, (taskInstruction) => taskInstruction.task)
-  @JoinColumn({ name: 'task_id' })
-  taskInstructions: TaskInstruction[];
+  @OneToOne(() => TaskInstruction, (taskInstruction) => taskInstruction.task)
+  taskInstruction: TaskInstruction;
+
+  @OneToOne(
+    () => ReviewerTaskInstruction,
+    (taskInstruction) => taskInstruction.task,
+  )
+  reviewerInstruction: ReviewerTaskInstruction;
+
+  @OneToOne(() => QATaskInstruction, (taskInstruction) => taskInstruction.task)
+  qaInstruction: QATaskInstruction;
 
   // Task has one TaskPayment
   @OneToOne(() => TaskPayment, (payment) => payment.task)

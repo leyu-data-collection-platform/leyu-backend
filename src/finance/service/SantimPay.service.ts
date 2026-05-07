@@ -5,10 +5,10 @@ export class SantimpaySdk {
   private baseUrl: string;
   constructor() {
     this.privateKey = process.env.SANTIM_PAY_PRIVATE_KEY_IN_PEM as string;
-    this.merchantId = process.env.PAYMENT_MERCHANT_ID as string;
-    this.baseUrl = process.env.PAYMENT_BASE_URL as string;
+    this.merchantId = process.env.SANTIM_PAY_GATEWAY_MERCHANT_ID as string;
+    this.baseUrl = process.env.SANTIM_PAY_TEST_BASE_URL as string;
     // if (testBed) {
-    //   this.baseUrl = process.env.PAYMENT_BASE_URL as string;
+    //   this.baseUrl = process.env.SANTIM_PAY_TEST_BASE_URL as string;
     // }
   }
   generateSignedTokenForInitiatePayment(amount: number, paymentReason: string) {
@@ -69,7 +69,7 @@ export class SantimpaySdk {
         merchantId: this.merchantId,
         signedToken: token,
         receiverAccountNumber: phoneNumber,
-        notifyUrl: process.env.PAYMENT_NOTIFY_URL,
+        notifyUrl: process.env.SANTIM_PAY_NOTIFY_URL,
         paymentMethod,
       };
       const response = await axios.post(

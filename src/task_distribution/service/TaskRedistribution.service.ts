@@ -15,6 +15,7 @@ import {
   distributeTaskAmongNewContributorsGenderBased,
 } from 'src/utils/TaskDistribution.util';
 import { UserScoreService } from 'src/auth/service/UserScore.service';
+import { CacheService } from 'src/cache/CacheService.service';
 @Injectable()
 /**
  * The TaskDistributionService class is responsible for managing task distribution and redistribution
@@ -30,6 +31,7 @@ export class TaskRedistributionService {
     private readonly taskService: TaskService,
     private readonly userService: UserService,
     private readonly userScoreService: UserScoreService,
+    private readonly cacheService: CacheService,
     private readonly dataSource: DataSource,
   ) {}
   /**
@@ -58,7 +60,7 @@ export class TaskRedistributionService {
           this.microTaskStatisticsService.findAll({
             where: { task_id: taskId },
           }),
-          this.contributorMicroTaskService.findAll({
+          this.contributorMicroTaskService.findAllUnExpiredAssignments({
             where: { task_id: taskId },
           }),
         ]);
@@ -143,6 +145,7 @@ export class TaskRedistributionService {
           }
 
           await queryRunner.commitTransaction();
+          await this.cacheService.clearCacheByTaskId(taskId);
         } catch (error) {
           console.error(
             `[Redistribution] Task ID ${taskId}: Error during redistribution`,
@@ -361,7 +364,7 @@ export class TaskRedistributionService {
       microTaskStats,
       queryRunner,
     );
-    await this.contributorMicroTaskService.removeMany(
+    await this.contributorMicroTaskService.expireAll(
       contributorsToRevoke,
       queryRunner,
     );
@@ -560,7 +563,7 @@ export class TaskRedistributionService {
       microTaskStats,
       queryRunner,
     );
-    await this.contributorMicroTaskService.removeMany(
+    await this.contributorMicroTaskService.expireAll(
       contributorsToRevoke,
       queryRunner,
     );

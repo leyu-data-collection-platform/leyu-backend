@@ -25,8 +25,10 @@ WORKDIR /usr/src/app
 # Copy package files
 COPY package*.json ./
 
+# Install pnpm
+RUN npm install -g pnpm
 # Install only production dependencies
-RUN npm ci --omit=dev
+RUN pnpm install --prod
 
 # Copy built files from builder
 COPY --from=builder /usr/src/app ./
@@ -35,4 +37,4 @@ COPY --from=builder /usr/src/app ./
 EXPOSE 3000
 
 # Start the app
-CMD ["sh", "-c", "sleep 4 && npm run migration:run:prod && node dist/main.js"]
+CMD ["sh", "-c", "sleep 4 && pnpm run migration:run:prod && pnpm run start"]

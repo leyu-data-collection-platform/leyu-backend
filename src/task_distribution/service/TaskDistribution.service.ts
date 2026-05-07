@@ -1,9 +1,5 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { QueryRunner } from 'typeorm';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { In, QueryRunner } from 'typeorm';
 import { MicroTaskStatistics } from '../enitities/MicroTaskStatistics.entity';
 import { MicroTaskStatisticsService } from './MicroTaskStatistics.service';
 import { ContributorMicroTaskService } from './ContributorMicroTask.service';
@@ -16,9 +12,12 @@ import { DataSetService } from 'src/data_set/service/DataSet.service';
 import { ContributorMicroTasksConstantStatus } from 'src/utils/constants/ContributorMicroTasks.constant';
 import { GENDER_CONSTANT } from 'src/utils/constants/Gender.constant';
 import { NotificationService } from 'src/common/service/Notification.service';
-
-import { ReviewerTaskService } from './ReviewerTasks.service';
+import { I18nService } from 'nestjs-i18n';
 import { CacheService } from 'src/cache/CacheService.service';
+// import {
+//    I18nPath,
+//    I18nTranslations,
+//  } from 'src/generated/i18n.generated';
 
 const percent_required = 0.4;
 
@@ -38,7 +37,7 @@ export class TaskDistributionService {
     private readonly taskService: TaskService,
     private readonly userService: UserService,
     private readonly notificationService: NotificationService,
-    private readonly reviewerTaskService: ReviewerTaskService,
+    private readonly i18n: I18nService,
     private readonly cacheService: CacheService,
   ) {}
 
@@ -87,7 +86,7 @@ export class TaskDistributionService {
       },
     );
     const contributor_micro_Tasks =
-      await this.contributorMicroTaskService.findAll({
+      await this.contributorMicroTaskService.findAllUnExpiredAssignments({
         where: { task_id: task_id },
       });
     const microTaskStatistics = await this.microTaskStatisticsService.findAll({
@@ -132,7 +131,51 @@ export class TaskDistributionService {
     );
     return;
   }
+  // async manualTaskDistributionForContributor(task_id: string,contributor_id:string,microtask_ids:string[], queryRunner: QueryRunner) {
+  //   // get the task
+  //   const task = await this.taskService.findOne({
+  //     where: { id: task_id },
+  //     relations: { microTasks: true, taskRequirement: true },
+  //   });
+  //   if (!task) {
+  //     throw new Error('Task not found');
+  //   }
+  //   let requirement = task?.taskRequirement;
+  //   await this.taskService.activateContributorToTask({
+  //     user_id:contributor_id,
+  //     task_id:task_id});
 
+  //   let contributor_micro_Tasks =
+  //   await this.contributorMicroTaskService.findOne({
+  //     where: { task_id: task_id,contributor_id:contributor_id },
+  //   });
+  //   await this.microTaskStatisticsService.findAll({
+  //     where: { task_id: task_id },
+  //   });
+  //   if (contributor_micro_Tasks) {
+  //     microtask_ids=microtask_ids.filter((micro_task_id) => {
+  //     return !contributor_micro_Tasks?.micro_task_ids.find((micro_task) => {
+  //       return micro_task == micro_task_id ;
+  //     });
+  //   })
+  //   }
+
+  //   await this.distributeNewTask(
+  //     {
+  //       task_id,
+  //       micro_task_ids:microtask_ids,
+  //       contributor_ids:[contributor_id],
+  //       expected_micro_task_for_contributor:
+  //         requirement.max_micro_task_per_contributor,
+  //       expected_no_of_contributors_per_micro_task:
+  //         requirement.max_contributor_per_micro_task,
+  //       batch: requirement.batch || requirement.max_micro_task_per_contributor,
+  //     },
+  //     task,
+  //     queryRunner,
+  //   );
+  //   return;
+  // }
 
   /**
    * Processes contributor–microtask distribution using gender-based constraints.
@@ -198,7 +241,7 @@ export class TaskDistributionService {
       },
     );
     const contributor_micro_Tasks =
-      await this.contributorMicroTaskService.findAll({
+      await this.contributorMicroTaskService.findAllUnExpiredAssignments({
         where: { task_id: task_id },
       });
     const microTaskStatistics = await this.microTaskStatisticsService.findAll({
@@ -336,6 +379,7 @@ export class TaskDistributionService {
     }
 
     await this.processTaskDistribution(task_id, queryRunner);
+    await this.cacheService.clearCacheByTaskId(task_id);
 
     return;
   }
@@ -526,15 +570,15 @@ export class TaskDistributionService {
         }
       }
     }
-    if (validContributorTasks.length > 0) {
-      await Promise.all(
-        validContributorTasks.map(async (contributor_task) => {
-          return this.cacheService.clearContributorTaskCache(
-            contributor_task.contributor_id,
-          );
-        }),
-      );
-    }
+    // if (validContributorTasks.length > 0) {
+    //   await Promise.all(
+    //     validContributorTasks.map(async (contributor_task) => {
+    //       return this.cacheService.clearContributorTaskCache(
+    //         contributor_task.contributor_id,
+    //       );
+    //     }),
+    //   );
+    // }
     await this.contributorMicroTaskService.createMany(
       validContributorTasks,
       data.task_id,
@@ -552,11 +596,7 @@ export class TaskDistributionService {
       microTaskStatics,
       queryRunner,
     );
-    await this.notifyContributorAssignment(
-      validContributorTasks,
-      task,
-      queryRunner,
-    );
+    await this.notifyContributorAssignment(validContributorTasks, task);
     return;
   }
 
@@ -648,7 +688,6 @@ export class TaskDistributionService {
         if (
           totalAssignedMicroTasks >= data.expected_micro_task_for_contributor
         ) {
-          console.log('It is greater than expected ');
           break;
         }
         if (
@@ -789,15 +828,15 @@ export class TaskDistributionService {
       }
     }
 
-    if (contributor_micro_tasks.length > 0) {
-      await Promise.all(
-        contributor_micro_tasks.map(async (contributor_task) => {
-          return this.cacheService.clearContributorTaskCache(
-            contributor_task.contributor_id,
-          );
-        }),
-      );
-    }
+    // if (contributor_micro_tasks.length > 0) {
+    //   await Promise.all(
+    //     contributor_micro_tasks.map(async (contributor_task) => {
+    //       return this.cacheService.clearContributorTaskCache(
+    //         contributor_task.contributor_id,
+    //       );
+    //     }),
+    //   );
+    // }
 
     await this.contributorMicroTaskService.createMany(
       contributor_micro_tasks,
@@ -817,15 +856,65 @@ export class TaskDistributionService {
       microTaskStatics,
       queryRunner,
     );
-    await this.notifyContributorAssignment(
-      contributor_micro_tasks,
-      task,
-      queryRunner,
-    );
+    await this.notifyContributorAssignment(contributor_micro_tasks, task);
     return;
   }
 
-
+  /**
+   * Initialize the task distribution process for a newly created contributor.
+   * This method will first find all the matching tasks for the contributor and then
+   * assign micro tasks to the contributor for each matching task.
+   * @param event The event that triggered this method
+   * @returns void
+   */
+  // @OnEvent(ActionEvents.USER_CREATED)
+  // async initializeTaskDistributionForContributor(event: ContributorCreatedEvent) {
+  //   let contributor_id = event.user_id;
+  //   let user = await this.userService.findOne({
+  //     where: { id: contributor_id },
+  //   });
+  //   if (!user) {
+  //     throw new Error('User not found');
+  //   }
+  //   let tasks: { task: Task; score: number }[] =
+  //     await this.taskService.findMatchingTasks({
+  //       dialect_id: user.dialect_id,
+  //       language_id: user.language_id,
+  //       birth_date: user.birth_date,
+  //       gender: user.gender,
+  //     });
+  //   tasks=tasks.filter((task) => {
+  //     return task.task.require_contributor_test==false
+  //   })
+  //   await Promise.all(
+  //     tasks.map(async (task: { task: Task; score: number }) => {
+  //       const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+  //       await queryRunner.connect();
+  //       await queryRunner.startTransaction();
+  //       try {
+  //         let microTaskStatics = await this.microTaskStatisticsService.findAll({
+  //           where: { task_id: task.task.id },
+  //         });
+  //         if (microTaskStatics.length > 0) {
+  //           await this.assignMicroTasksToContributor(
+  //             contributor_id,
+  //             task.task.id,
+  //             task.task.taskRequirement.max_micro_task_per_contributor,
+  //             task.task.taskRequirement.batch ||
+  //               task.task.taskRequirement.max_micro_task_per_contributor,
+  //             microTaskStatics,
+  //             queryRunner,
+  //           );
+  //         }
+  //         await queryRunner.commitTransaction();
+  //       } catch (error) {
+  //         await queryRunner.rollbackTransaction();
+  //       }
+  //       await queryRunner.release();
+  //     }),
+  //   );
+  //   return;
+  // }
   async assignMicroTasksToContributor(
     contributor_id: string,
     task_id: string,
@@ -881,68 +970,43 @@ export class TaskDistributionService {
   async notifyContributorAssignment(
     contributorMicroTasks: Partial<ContributorMicroTasks>[],
     task: Task,
-    queryRunner: QueryRunner,
-  ) {
-    const title = 'New Task Assignment';
-    const message = `You have been assigned a new task on ${task.name}. Please complete the task as soon as possible.`;
-    await Promise.all(
-      contributorMicroTasks.map(async (contributorMicroTask) => {
-        if (contributorMicroTask.contributor_id) {
-          await this.notificationService.create({
-            user_id: contributorMicroTask.contributor_id,
-            title,
-            message,
-            type: 'task-assign',
-          });
-        }
-      }),
-    );
-  }
-  /**
-   * Distributes pending micro-task data sets of a task to its assigned reviewers.
-   * Fetches all data sets of the task, separates pending and reviewed sets,
-   * and delegates assignment to the reviewer task service.
-   *
-   * @param {string} taskId - The ID of the task to distribute to reviewers.
-   *
-   * @returns {Promise<void>} - Resolves when the distribution process is completed.
-   *
-   * @throws {NotFoundException} Throws if the task is not found or is archived.
-   *
-   * @remarks
-   * - Fetches the task along with its requirements and user assignments.
-   * - Filters all data sets of the task into pending and reviewed.
-   * - Identifies reviewers from the task's user assignments.
-   * - Calls `reviewerTaskService.distributeTaskForReviewers` to handle the actual assignment.
-   */
-  async distributeTaskForReviewers(taskId: string) {
-    const task = await this.taskService.findOne({
-      where: { id: taskId, is_archived: false },
-      relations: { taskRequirement: true, userToTasks: true },
-    });
-    if (!task) {
-      throw new NotFoundException('Task not found or it is deleted');
-    }
-    const dataSets = await this.dataSetService.findAll({
+  ): Promise<void> {
+    const users = await this.userService.findMany({
       where: {
-        microTask: {
-          task: {
-            id: taskId,
-          },
-        },
+        id: In(
+          contributorMicroTasks.map(
+            (contributorMicroTask) => contributorMicroTask.contributor_id,
+          ),
+        ),
       },
     });
-    const pendingDataSets = dataSets.filter((dS) => dS.status === 'Pending');
-    const reviewedDataSets = dataSets.filter((dS) => dS.status !== 'Pending');
-    const taskReviewers = task.userToTasks
-      .filter((tM) => tM.role === 'Reviewer')
-      .map((tM) => tM.user_id);
-    const pendingDataSetIds = pendingDataSets.map((pd) => pd.id);
-    await this.reviewerTaskService.distributeTaskForReviewers(
-      task,
-      pendingDataSetIds,
-      reviewedDataSets,
-      taskReviewers,
-    );
+    console.log('contr - microtasks - ', contributorMicroTasks);
+    console.log('Notify - users - ');
+    for (const t of contributorMicroTasks) {
+      const c = users.find((u) => u.id === t.contributor_id);
+      if (!c?.preferred_language) return;
+
+      const lang = c.preferred_language || 'en';
+
+      const title =
+        this.i18n.t('common.new_task_notification_title', {
+          lang,
+        }) || '';
+
+      const message =
+        this.i18n.t('common.new_task_notification_message', {
+          lang,
+          args: { taskTitle: task.name },
+        }) || '';
+
+      await this.notificationService.create({
+        user_id: t.contributor_id || '',
+        title,
+        message,
+        type: 'task-assign',
+      });
+    }
+    console.log('Users notified');
+    return;
   }
 }

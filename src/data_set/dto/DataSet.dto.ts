@@ -1,17 +1,18 @@
-import { createZodDto } from 'nestjs-zod';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 import { DataSetStatus } from 'src/utils/constants/DataSetStatus.constant';
-import { z } from 'zod';
 // get-dataset.dto.ts
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsOptional,
   IsString,
   IsBoolean,
   IsEnum,
   IsUUID,
+  IsNumber,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class GetDataSetDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'Filter by code', example: 'DS-001' })
@@ -81,22 +82,6 @@ export class GetDataSetDto extends PaginationDto {
   })
   is_test?: boolean;
 }
-
-export const createDataSetSchema = z.object({
-  micro_task_id: z.string().uuid(),
-  text_data_set: z.string(),
-});
-export const createMultipleDataSetSchema = z.array(
-  z.object({
-    micro_task_id: z.string().uuid(),
-    text_data_set: z.string(),
-  }),
-);
-export const findContributorDatasetsPaginated = z.object({
-  contributor_id: z.string().uuid(),
-  page: z.number().optional(),
-  limit: z.number().optional(),
-});
 export class FindReviewerDataSetDto extends PaginationDto {
   @ApiPropertyOptional({
     description: 'Filter by status',
@@ -117,22 +102,6 @@ export class FindReviewerDataSetDto extends PaginationDto {
   @IsOptional()
   status?: 'Pending' | 'Approved' | 'Rejected' | 'Flagged';
 }
-export const updateDataSetSchema = createDataSetSchema.partial();
-export class FindContributorDatesetDto extends createZodDto(
-  findContributorDatasetsPaginated,
-) {}
-export class CreateDataSetDto extends createZodDto(createDataSetSchema) {}
-export class UpdateDataSetDto extends createZodDto(updateDataSetSchema) {}
-export class CreateMultipleDataSetDto extends createZodDto(
-  createMultipleDataSetSchema,
-) {}
-
-export class ApproveDataSetDto {
-  @ApiPropertyOptional({ description: 'Filter by annotation' })
-  @IsString()
-  @IsOptional()
-  annotation?: string;
-}
 
 export class TaskSubmissionsDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'Filter by annotation' })
@@ -146,5 +115,75 @@ export class TaskSubmissionsDto extends PaginationDto {
   })
   @IsOptional()
   @IsEnum(DataSetStatus)
-  status?: string;
+  status?: DataSetStatus;
+}
+/* =======================
+   BASE DTO
+======================= */
+export class DataSetItemDto {
+  @ApiProperty()
+  @IsUUID()
+  micro_task_id: string;
+  @ApiProperty()
+  @IsString()
+  text_data_set: string;
+}
+
+/* =======================
+   CREATE SINGLE
+======================= */
+export class CreateDataSetDto {
+  @ApiProperty()
+  @IsUUID()
+  micro_task_id: string;
+
+  @ApiProperty()
+  @IsString()
+  text_data_set: string;
+}
+
+/* =======================
+   UPDATE (partial of create)
+======================= */
+export class UpdateDataSetDto {
+  @ApiProperty()
+  @IsOptional()
+  @IsUUID()
+  micro_task_id?: string;
+
+  @ApiProperty()
+  @IsOptional()
+  @IsString()
+  text_data_set?: string;
+}
+
+/* =======================
+   CREATE MULTIPLE
+======================= */
+export class CreateMultipleDataSetDto {
+  @ApiProperty()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DataSetItemDto)
+  items: DataSetItemDto[];
+}
+
+/* =======================
+   PAGINATED QUERY
+======================= */
+export class FindContributorDatasetDto {
+  @ApiProperty()
+  @IsUUID()
+  contributor_id: string;
+
+  @ApiProperty()
+  @IsOptional()
+  @IsNumber()
+  @Transform(({ value }) => Number(value))
+  page?: number;
+
+  @ApiProperty()
+  @IsNumber()
+  @Transform(({ value }) => Number(value))
+  limit?: number;
 }

@@ -24,7 +24,7 @@ export class LanguageService {
     );
   }
   async onModuleInit() {
-    await this.createEthiopianLanguage();
+    // await this.createEthiopianLanguage();
   }
   // Create Basic Ethiopian Language on Init
   async createEthiopianLanguage(): Promise<void> {
@@ -74,6 +74,59 @@ export class LanguageService {
     } else {
       return await this.languageRepository.find({ where: query });
     }
+  }
+
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Language> {
+    const language = await this.languageRepository.findOne({ where: { id } });
+    if (!language) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (language.alternative_names == null) {
+      language.alternative_names = [];
+    }
+    if (language.alternative_names.some((alt) => alt.key === languageKey)) {
+      throw new BadRequestException('Language already exists');
+    }
+    language.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.languageRepository.save(language);
+  }
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Language> {
+    const annotationType = await this.languageRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.languageRepository.save(annotationType);
   }
 
   async create(

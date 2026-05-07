@@ -9,8 +9,15 @@ import { ProjectStatisticsController } from './controllers/ProjectStatistics.con
 import { ProjectStatisticsService } from './services/ProjectStatistics.service';
 import { ReviewerStatisticsController } from './controllers/ReviewerStatistics.controller';
 import { ReviewerStatistics } from './services/ReviewerStatistics.service';
+import { TaskDistributionModule } from 'src/task_distribution/task_distribution.module';
 @Module({
-  imports: [AuthModule, DataSetModule, ProjectModule, BaseDataModule],
+  imports: [
+    AuthModule,
+    DataSetModule,
+    ProjectModule,
+    BaseDataModule,
+    TaskDistributionModule,
+  ],
   exports: [],
   providers: [
     SuperAdminStatistics,

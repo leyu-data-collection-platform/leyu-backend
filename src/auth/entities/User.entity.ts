@@ -23,6 +23,9 @@ import { ActivityLogs } from 'src/common/entities/ActivityLogs.entity';
 import { FacilitatorContributor } from 'src/project/entities/FacilitatorContributor.entity';
 import { UserDeviceToken } from './UserDeviceToken.entity';
 import { Transaction } from 'src/finance/entities/Transaction.entity';
+import { DataSetReview } from 'src/task_distribution/enitities/DataSetReview.entity';
+import { UserReferral } from './UserReferral.entity';
+import { LanguageConstants } from 'src/utils/constants/Language.constant';
 
 @Entity('users')
 export class User {
@@ -47,6 +50,12 @@ export class User {
   @Column({ unique: true, nullable: true })
   national_id: string;
 
+  @Column({
+    default: 'pending',
+    enum: ['pending', 'under_review', 'approved', 'rejected'],
+  })
+  kyc_verification_status: 'pending' | 'under_review' | 'approved' | 'rejected';
+
   @Column({ select: false })
   password: string;
 
@@ -62,11 +71,17 @@ export class User {
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: false })
+  has_logged_in: boolean;
+
   @Column({ nullable: true })
   created_by: string;
 
   @Column({ nullable: true })
   updated_by: string;
+
+  @Column({ nullable: true })
+  referral_code: string;
 
   @CreateDateColumn()
   created_date: Date;
@@ -78,21 +93,21 @@ export class User {
   @JoinColumn({ name: 'language_id' })
   language: Language;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'uuid' })
   language_id: string;
 
   @ManyToOne(() => Dialect, (dialect) => dialect.users)
   @JoinColumn({ name: 'dialect_id' })
   dialect: Dialect;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'uuid' })
   dialect_id: string;
 
   @ManyToOne(() => Role, (role) => role.users)
   @JoinColumn({ name: 'role_id' })
   role: Role;
 
-  @Column({})
+  @Column({ type: 'uuid' })
   role_id: string;
 
   @Column({ nullable: true })
@@ -105,7 +120,7 @@ export class User {
   @JoinColumn({ name: 'zone_id' })
   zone: Zone;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'uuid' })
   zone_id: string;
 
   @ManyToOne(() => Region, (region) => region.users)
@@ -115,9 +130,19 @@ export class User {
   @Column({ nullable: true })
   region_id: string;
 
+  @Column({
+    default: LanguageConstants.ENGLISH,
+    enum: LanguageConstants,
+    nullable: true,
+  })
+  preferred_language: LanguageConstants;
+
   @OneToMany(() => DataSet, (attempt) => attempt.contributor)
   @JoinColumn({ name: 'contributor_id' })
   contributes: DataSet[];
+
+  @OneToMany(() => DataSetReview, (dataSetReview) => dataSetReview.reviewer)
+  dataSetReviews: DataSetReview[];
 
   @OneToMany(
     () => FacilitatorContributor,
@@ -126,15 +151,12 @@ export class User {
   @JoinColumn({ name: 'facilitator_id' })
   facilitatorContributors: FacilitatorContributor[];
 
-  @OneToMany(() => DataSet, (attempt) => attempt.reviewer)
-  @JoinColumn({ name: 'reviewer_id' })
-  reviews: DataSet[];
-
   @OneToMany(() => UserLog, (userLog) => userLog.user)
   @JoinColumn({ name: 'user_id' })
   userLogs: UserLog[];
 
   @OneToOne(() => Wallet, (wallet) => wallet.user)
+  @JoinColumn({ name: 'wallet_id' })
   wallet: Wallet[];
 
   @OneToMany(() => UserTask, (UserTask) => UserTask.user)
@@ -154,8 +176,10 @@ export class User {
   @JoinColumn({ name: 'user_id' })
   transactions: Transaction[];
 
-  @OneToOne(() => UserScore, { eager: true })
-  @JoinColumn({ name: 'score_id' })
+  @OneToOne(() => UserScore, (score) => score.user, {
+    cascade: true, // optional
+    // eager: true,        // optional
+  })
   score: UserScore;
 
   @OneToOne(() => ActivityLogs, {})
@@ -163,4 +187,12 @@ export class User {
 
   @Column({ type: 'text', array: true, nullable: true })
   sectors: string[];
+
+  // User has referred many users
+  @OneToMany(() => UserReferral, (ref) => ref.referrer)
+  sentReferrals: UserReferral[];
+
+  // User was referred by one user
+  @OneToOne(() => UserReferral, (ref) => ref.referred)
+  receivedReferral: UserReferral;
 }

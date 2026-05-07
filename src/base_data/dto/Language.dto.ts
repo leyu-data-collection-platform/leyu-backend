@@ -1,13 +1,31 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsOptional, IsString, ValidateNested } from 'class-validator';
+import { AlternativeNamesDto } from './index.dto';
+import { Type } from 'class-transformer';
+export class CreateLanguageDto {
+  @ApiProperty()
+  @IsString()
+  name: string;
 
-export const createLanguageSchema = z.object({
-  name: z.string().min(1),
-  code: z.string().optional(),
-});
-export const updateLanguageSchema = z.object({
-  name: z.string().min(1).optional(),
-  code: z.string().optional(),
-});
-export class CreateLanguageDto extends createZodDto(createLanguageSchema) {}
-export class UpdateLanguageDto extends createZodDto(updateLanguageSchema) {}
+  @ApiProperty({ required: false })
+  @IsString()
+  code?: string;
+}
+
+export class UpdateLanguageDto {
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  code?: string;
+
+  @ApiProperty({ required: false, type: [AlternativeNamesDto] })
+  @Type(() => AlternativeNamesDto)
+  @IsOptional()
+  @ValidateNested({ each: true })
+  alternative_names?: AlternativeNamesDto[];
+}

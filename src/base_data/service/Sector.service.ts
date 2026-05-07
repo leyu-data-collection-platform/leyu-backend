@@ -43,6 +43,56 @@ export class SectorService {
       return await this.sectorRepository.find({ where: query });
     }
   }
+  async addAlternativeName(
+    id: number,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Sector> {
+    const sector = await this.sectorRepository.findOne({ where: { id } });
+    if (!sector) {
+      throw new BadRequestException('Sector not found');
+    }
+    if (sector.alternative_names == null) {
+      sector.alternative_names = [];
+    }
+    if (sector.alternative_names.some((alt) => alt.key === languageKey)) {
+      throw new BadRequestException('Language already exists');
+    }
+    sector.alternative_names.push({ key: languageKey, name: alternative_name });
+    return await this.sectorRepository.save(sector);
+  }
+
+  async updateAlternativeName(
+    id: number,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Sector> {
+    const annotationType = await this.sectorRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.sectorRepository.save(annotationType);
+  }
 
   async create(
     sectorData: Partial<Sector>,

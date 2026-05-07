@@ -28,9 +28,6 @@ export class DataSetRto {
   type: string;
 
   @ApiProperty()
-  annotation: string;
-
-  @ApiProperty()
   created_date: Date;
 
   @ApiProperty()
@@ -53,7 +50,7 @@ export class DataSetRto {
       file_path: dataSet.file_path,
       type: dataSet.type,
       created_date: dataSet.created_date,
-      annotation: dataSet.annotation,
+      // annotation: dataSet.annotation,
       micro_task_id: dataSet.micro_task_id,
       rejectionReasons: dataSet.rejectionReasons
         ? dataSet?.rejectionReasons.map(

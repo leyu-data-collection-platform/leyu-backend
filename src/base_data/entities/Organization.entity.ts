@@ -17,6 +17,12 @@ export class Organization {
   @Column({ unique: true })
   name: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+
   @Column({ unique: true })
   email: string;
 

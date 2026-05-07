@@ -1,0 +1,6 @@
+{
+    "new_task_notification_title":"Hojiin haaraan siif ramadame jira",
+    "new_task_notification_message":"Hojiin haaraan siif ramadame: {taskTitle}. Mee bal'ina isaaf daashboordii keessan ilaalaa.",
+    "task_rejected_notification_title":"Hojiin Fudhatama hin argannee",
+    "task_rejected_notification_message":"Galmeen kee koodii: { taskCode} hojii: {taskTitle} irratti kennitan fudhatama hin argannee. Mee irra deebi'ii yaalaa."
+}

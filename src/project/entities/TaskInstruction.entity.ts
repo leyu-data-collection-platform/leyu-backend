@@ -4,8 +4,8 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
   JoinColumn,
+  OneToOne,
 } from 'typeorm';
 import { Task } from './Task.entity';
 
@@ -14,7 +14,7 @@ export class TaskInstruction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Task, (task) => task.taskInstructions)
+  @OneToOne(() => Task, (task) => task.taskInstruction)
   @JoinColumn({ name: 'task_id' })
   task: Task;
 

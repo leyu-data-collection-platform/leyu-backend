@@ -1,6 +1,6 @@
 workflow:
     rules:
-        - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event" 
+        - if: $CI_COMMIT_BRANCH != "internal-customization" && $CI_PIPELINE_SOURCE != "merge_request_event" 
           when: never
         - when: always
 variables:
@@ -82,16 +82,16 @@ push_iamge:
         - mkdir -p ~/.ssh
         - chmod 700 ~/.ssh
     script:
-        - scp -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY ./docker-compose.yaml root@159.223.203.142:/root/back
-        - ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY root@159.223.203.142 "
-            cd back &&
+        - scp -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY ./docker-compose-internal.yaml root@164.90.209.220:/root/leyu-backend-internal
+        - ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY root@164.90.209.220 "
+            cd leyu-backend-internal &&
             docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY &&
             export COMPOSE_PROJECT_NAME=back-$DEPLOY_ENV &&
             export DC_BACK_IMAGE_NAME=$IMAGE_NAME &&
             export DC_BACK_IMAGE_TAG=$VERSION &&
             export DC_BACK_APP_PORT=$APP_PORT &&
-            docker compose -f docker-compose.yaml down &&
-            docker compose -f docker-compose.yaml up -d"            
+            docker compose -f docker-compose-internal.yaml up --build -d"      
+        
 
 
 
@@ -99,8 +99,8 @@ deploy_to_staging:
     extends: .deploy
     stage: deploy_dev
     variables:
-        APP_PORT: 3003
-        DEPLOY_ENV: dev 
+        APP_PORT: 3007
+        DEPLOY_ENV: internal_dev
 
 deploy_to_production:
     extends: .deploy

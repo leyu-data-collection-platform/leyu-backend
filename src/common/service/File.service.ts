@@ -7,7 +7,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { s3 } from 'src/config/minio.config';
+import { s3 } from '../../config/minio.config';
 import { DataSet } from 'src/data_set/entities/DataSet.entity';
 import { MicroTask } from 'src/data_set/entities/MicroTask.entity';
 import { Readable } from 'stream';
@@ -32,7 +32,7 @@ export class FileService {
 
       await s3.send(command);
       return { message: 'File deleted successfully' };
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Failed to delete file: ${error.message}`);
     }
   }
@@ -108,7 +108,7 @@ export class FileService {
         }),
       );
       return true;
-    } catch (err) {
+    } catch (err: any) {
       if (err.name === 'NotFound') {
         return false;
       }
@@ -123,7 +123,7 @@ export class FileService {
       });
       const response = await s3.send(command);
       return response;
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Failed to get file: ${error.message}`);
     }
   }

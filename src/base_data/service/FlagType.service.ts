@@ -35,6 +35,63 @@ export class FlagTypeService {
   async findAll(query: Partial<FlagType>): Promise<FlagType[]> {
     return await this.flagTypeRepository.find({ where: query });
   }
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<FlagType> {
+    const annotationType = await this.flagTypeRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      throw new BadRequestException('Language already exists');
+    }
+    annotationType.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.flagTypeRepository.save(annotationType);
+  }
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<FlagType> {
+    const annotationType = await this.flagTypeRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.flagTypeRepository.save(annotationType);
+  }
+
   async findPaginate(
     paginationDto: PaginationDto,
   ): Promise<PaginatedResult<FlagType>> {

@@ -29,6 +29,9 @@ export class TaskRequirement {
   @Column({ nullable: true, default: 10 })
   max_dataset_per_reviewer: number;
 
+  @Column({ default: 1 })
+  max_reviewer_per_dataset: number;
+
   @Column({ nullable: true })
   max_micro_task_per_contributor: number;
 

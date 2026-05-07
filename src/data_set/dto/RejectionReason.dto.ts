@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsArray,
@@ -8,17 +7,8 @@ import {
   IsUUID,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-export const createRejectionReasonSchema = z.object({
-  reason: z.string().min(1),
-  comment: z.string(),
-  rejection_type_id: z.string().uuid(),
-});
 
-export class CreateRejectionReasonDto {
-  @ApiProperty({})
-  @IsString()
-  comment: string;
-
+export class CreateRejectionDto {
   @ApiProperty()
   @IsBoolean()
   @IsOptional()
@@ -31,7 +21,13 @@ export class CreateRejectionReasonDto {
 
   @ApiProperty()
   @IsArray()
+  @IsUUID('all', { each: true })
   rejection_type_ids: string[];
+
+  @ApiProperty()
+  @IsString()
+  @IsOptional()
+  comment?: string;
 }
 
 export class UpdateRejectionReasonDto {

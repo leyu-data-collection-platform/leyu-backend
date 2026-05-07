@@ -5,13 +5,14 @@ import {
   DeleteDateColumn,
   Entity,
   JoinColumn,
+  ManyToMany,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { AnnotationType } from './AnnotationType.entity';
-
+import { DataSetReview } from 'src/task_distribution/enitities/DataSetReview.entity';
 @Entity({ schema: 'setting', name: 'annotation' })
 export class DataSetAnnotation {
   @PrimaryGeneratedColumn('uuid')
@@ -20,6 +21,11 @@ export class DataSetAnnotation {
   @Column({ unique: true })
   name: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
   @Column()
   description: string;
 
@@ -55,4 +61,7 @@ export class DataSetAnnotation {
   // RejectionType has many RejectionReason
   @OneToMany(() => FlagReason, (flagReason) => flagReason.flagType)
   flagReasons: FlagReason[];
+
+  @ManyToMany(() => DataSetReview, (dataSetReview) => dataSetReview.annotations)
+  dataSetReviews: DataSetReview[];
 }

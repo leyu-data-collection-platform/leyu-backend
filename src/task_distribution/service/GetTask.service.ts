@@ -31,6 +31,7 @@ import {
 import { GetContributorTasksDto } from '../dto/Task.dto';
 import { DataSetSanitize } from 'src/data_set/sanitize';
 import { CacheService } from 'src/cache/CacheService.service';
+import { LanguageConstants } from 'src/utils/constants/Language.constant';
 
 @Injectable()
 /**
@@ -157,7 +158,7 @@ export class GetTasksService {
     });
     const memberTaskIds = memberTasks.map((m) => m.task.id);
     const contributorAssignedTasks: ContributorMicroTasks[] =
-      await this.contributorMicroTaskService.findAll({
+      await this.contributorMicroTaskService.findAllUnExpiredAssignments({
         where: {
           contributor_id: user_id,
         },
@@ -199,7 +200,7 @@ export class GetTasksService {
       relations: {
         taskType: true,
         taskRequirement: true,
-        taskInstructions: true,
+        taskInstruction: true,
         microTasks: { dataSets: true },
         payment: true,
       },
@@ -215,6 +216,7 @@ export class GetTasksService {
     const taskStatus = getTaskStatus(userTasks);
     let contributorRecentTasks: ContributorTaskRto[] = [];
 
+    // console.log("Tasks ",taskStatus.map((task) =>task.name ));
     for (const task of taskStatus) {
       const contributorAssignedTask = contributorAssignedTasks.find(
         (item) => item.task_id == task.id,
@@ -222,8 +224,13 @@ export class GetTasksService {
       const memberStatus: UserTask | undefined = memberTasks.find(
         (item) => item.task_id == task.id,
       );
-
+      // console.log({
+      //   contributorAssignedTask,
+      //   memberStatus:memberStatus?.status,
+      //   name:task.name
+      // })
       if (contributorAssignedTask) {
+        console.log('In first if ', task.name);
         if (
           !memberStatus ||
           (memberStatus.status !== 'InActive' &&
@@ -234,25 +241,22 @@ export class GetTasksService {
             ContributorMicroTasksConstantStatus.COMPLETED
           ) {
             if (task.totalRejectedMicroTasks > 0) {
-              if (task.hasPendingOrUndoneMicroTasks) {
-                contributorRecentTasks.push({
-                  ...task,
-                  status: 'REJECTED',
-                  done_count: contributorAssignedTask.total_micro_tasks,
-                  total_count: contributorAssignedTask.total_micro_tasks,
-                  dead_line: contributorAssignedTask.dead_line,
-                  rejected_count: task.totalRejectedMicroTasks,
-                  pending_count: task.totalPendingMicroTasks,
-                  approved_count: task.totalApprovedMicroTasks,
-                  task_type: task.taskType.task_type,
-                  average_time: task.taskRequirement.appriximate_time_per_batch,
-                  estimated_earning:
-                    task.payment.contributor_credit_per_microtask *
-                    contributorAssignedTask.total_micro_tasks,
-                  earning_per_task:
-                    task.payment.contributor_credit_per_microtask,
-                });
-              }
+              contributorRecentTasks.push({
+                ...task,
+                status: 'REJECTED',
+                done_count: contributorAssignedTask.total_micro_tasks,
+                total_count: contributorAssignedTask.total_micro_tasks,
+                dead_line: contributorAssignedTask.dead_line,
+                rejected_count: task.totalRejectedMicroTasks,
+                pending_count: task.totalPendingMicroTasks,
+                approved_count: task.totalApprovedMicroTasks,
+                task_type: task.taskType.task_type,
+                average_time: task.taskRequirement.appriximate_time_per_batch,
+                estimated_earning:
+                  task.payment.contributor_credit_per_microtask *
+                  contributorAssignedTask.total_micro_tasks,
+                earning_per_task: task.payment.contributor_credit_per_microtask,
+              });
             } else if (task.totalPendingMicroTasks > 0) {
               contributorRecentTasks.push({
                 ...task,
@@ -421,10 +425,53 @@ export class GetTasksService {
                   });
                 }
               }
+              //   if (contributorAssignedTask.status ==
+              //     ContributorMicroTasksConstantStatus.COMPLETED){
+              //       if (
+              //   task.totalRejectedMicroTasks >0
+              // ) {
+              //   contributorRecentTasks.push({
+              //     ...task,
+              //     status: 'REJECTED',
+              //     done_count: task.totalApprovedMicroTasks + task.totalRejectedMicroTasks + task.totalPendingMicroTasks,
+              //     total_count:  task.totalApprovedMicroTasks + task.totalRejectedMicroTasks + task.totalPendingMicroTasks,
+              //     // dead_line: '',
+              //     rejected_count: task.totalRejectedMicroTasks,
+              //     pending_count: 0,
+              //     approved_count: task.totalApprovedMicroTasks,
+              //     task_type: task.taskType.task_type,
+              //     average_time: task.taskRequirement.appriximate_time_per_batch,
+              //     estimated_earning:
+              //       task.payment.contributor_credit_per_microtask *
+              //       task.taskRequirement.max_micro_task_per_contributor,
+              //     earning_per_task: task.payment.contributor_credit_per_microtask,
+              //   });
+              // } else {
+              //   contributorRecentTasks.push({
+              //     ...task,
+              //     status: 'COMPLETED',
+              //     done_count: task.totalApprovedMicroTasks,
+              //     total_count: task.totalApprovedMicroTasks,
+              //     dead_line: undefined,
+              //     rejected_count: 0,
+              //     pending_count: 0,
+              //     approved_count: task.totalApprovedMicroTasks,
+              //     task_type: task.taskType?.task_type,
+              //     average_time: task.taskRequirement.appriximate_time_per_batch,
+              //     estimated_earning:
+              //       task.payment.contributor_credit_per_microtask *
+              //       task.taskRequirement.max_micro_task_per_contributor,
+              //     earning_per_task: task.payment.contributor_credit_per_microtask,
+              //   });
+              // }
+              //     }
             }
           }
+        } else {
+          console.log('In second else ', memberStatus.status);
         }
       } else {
+        console.log('In recent ', memberStatus);
         if (memberStatus) {
           if (memberStatus.status == 'Active') {
             if (
@@ -600,7 +647,7 @@ export class GetTasksService {
   //     relations: {
   //       taskType: true,
   //       taskRequirement: true,
-  //       taskInstructions: true,
+  //       taskInstruction: true,
   //       microTasks: { dataSets: true },
   //     },
   //   });
@@ -889,7 +936,7 @@ export class GetTasksService {
         taskRequirement: true,
         taskType: true,
         microTasks: true,
-        taskInstructions: true,
+        taskInstruction: true,
         payment: true,
       },
     });
@@ -898,21 +945,39 @@ export class GetTasksService {
 
     const userTask = await this.userTaskService.findOne({
       where: { user_id: userId, task_id: taskId },
+      relations: { user: true },
     });
     if (!userTask) return this.handleNewUser(task, userId);
     let response: TaskMicroTasksResponse;
     switch (userTask.status) {
       case UserTaskStatus.REJECTED:
-        response = await this.handleRejected(task, userId);
+        response = await this.handleRejected(
+          task,
+          userId,
+          userTask.user.preferred_language,
+        );
         break;
       case UserTaskStatus.ACTIVE:
-        response = await this.handleActive(task, userId);
+        console.log('Preferred lang', userTask.user.preferred_language);
+        response = await this.handleActive(
+          task,
+          userId,
+          userTask.user.preferred_language,
+        );
         break;
       case UserTaskStatus.PENDING:
-        response = await this.handlePending(task, userId);
+        response = await this.handlePending(
+          task,
+          userId,
+          userTask.user.preferred_language,
+        );
         break;
       default:
-        response = await this.handlePendingOrInActive(task, userId);
+        response = await this.handlePendingOrInActive(
+          task,
+          userId,
+          userTask.user.preferred_language,
+        );
         break;
     }
     if (response.contributorMicroTask.length > 0) {
@@ -941,9 +1006,9 @@ export class GetTasksService {
   private async handleRejected(
     task: Task,
     userId: string,
+    userPreferredLanguage: LanguageConstants = LanguageConstants.ENGLISH,
   ): Promise<TaskMicroTasksResponse> {
     // contributor submitted microtasks
-    console.log(' ========== handleRejected ==========');
     const contributorSubmissions = await this.microTaskService.findAll({
       where: {
         task_id: task.id,
@@ -952,6 +1017,7 @@ export class GetTasksService {
       relations: {
         dataSets: {
           rejectionReasons: { rejectionType: true },
+          dataSetReviews: true,
         },
       },
     });
@@ -959,16 +1025,16 @@ export class GetTasksService {
     for (const microTask of contributorSubmissions) {
       const status = getMicroTaskStatus(
         microTask,
-        task.taskRequirement.max_retry_per_task,
+        task.taskRequirement.max_retry_per_task + 1,
       );
       contributorMicroTasks.push({
         ...microTask,
         acceptance_status: status.acceptanceStatus,
         current_retry: status.totalAttempts,
-        allowed_retry: task.taskRequirement.max_retry_per_task,
+        allowed_retry: task.taskRequirement.max_retry_per_task + 1,
         can_retry: status.canRetry,
         dataSet: status.dataSet
-          ? ContributorDataSetRto.from(status.dataSet)
+          ? ContributorDataSetRto.from(status.dataSet, userPreferredLanguage)
           : undefined,
       });
     }
@@ -987,10 +1053,9 @@ export class GetTasksService {
       batch: 0,
       is_test: true,
       contributorMicroTask: contributorMicroTasks,
-      taskInstruction:
-        task.taskInstructions.length > 0
-          ? TaskInstructionRto.from(task.taskInstructions[0])
-          : undefined,
+      taskInstruction: task.taskInstruction
+        ? TaskInstructionRto.from(task.taskInstruction)
+        : undefined,
       minimum_seconds: task.taskRequirement.minimum_seconds,
       maximum_seconds: task.taskRequirement.maximum_seconds,
       minimum_characters_length: task.taskRequirement.minimum_characters_length,
@@ -1029,7 +1094,7 @@ export class GetTasksService {
    *
    * Retry Logic:
    * - Retry eligibility is determined using:
-   *   - `max_retry_per_task`
+   *   - `max_retry_per_task +1`
    *   - Contributor submission history
    * - Micro-tasks that can be retried are prioritized in ordering
    *
@@ -1060,8 +1125,9 @@ export class GetTasksService {
   private async handleActive(
     task: Task,
     userId: string,
+    userPreferredLanguage: LanguageConstants = LanguageConstants.ENGLISH,
   ): Promise<TaskMicroTasksResponse> {
-    console.log('=== handleActive ===');
+    console.log('=== handleActive ===', userPreferredLanguage);
     const contributorMicroTasksAssigned =
       await this.contributorMicroTaskService.findOne({
         where: { contributor_id: userId, task_id: task.id },
@@ -1078,6 +1144,7 @@ export class GetTasksService {
         relations: {
           dataSets: {
             rejectionReasons: { rejectionType: true },
+            dataSetReviews: true,
           },
         },
       });
@@ -1086,16 +1153,16 @@ export class GetTasksService {
       for (const mt of contributorSubmissions) {
         const status = getMicroTaskStatus(
           mt,
-          task.taskRequirement.max_retry_per_task,
+          task.taskRequirement.max_retry_per_task + 1,
         );
         result.push({
           ...mt,
           acceptance_status: status.acceptanceStatus,
           current_retry: status.totalAttempts,
-          allowed_retry: task.taskRequirement.max_retry_per_task,
+          allowed_retry: task.taskRequirement.max_retry_per_task + 1,
           can_retry: status.canRetry,
           dataSet: status.dataSet
-            ? ContributorDataSetRto.from(status.dataSet)
+            ? ContributorDataSetRto.from(status.dataSet, userPreferredLanguage)
             : undefined,
         });
       }
@@ -1108,10 +1175,7 @@ export class GetTasksService {
           if (a.can_retry === b.can_retry) return 0;
           return a.can_retry ? -1 : 1; // true first
         }),
-        taskInstruction:
-          task.taskInstructions.length > 0
-            ? TaskInstructionRto.from(task.taskInstructions[0])
-            : undefined,
+        taskInstruction: task.taskInstruction,
         minimum_seconds: task.taskRequirement.minimum_seconds,
         maximum_seconds: task.taskRequirement.maximum_seconds,
         minimum_characters_length:
@@ -1154,7 +1218,7 @@ export class GetTasksService {
     for (const microTask of prevDoneMicroTasks) {
       const status = checkIfMicroTasIskRejectedAndTotalAttempts(
         microTask,
-        task.taskRequirement.max_retry_per_task,
+        task.taskRequirement.max_retry_per_task + 1,
       );
       result.push(
         ContributorMicroTaskRto.from(
@@ -1165,9 +1229,10 @@ export class GetTasksService {
           {
             acceptance_status: status.acceptanceStatus,
             current_retry: status.totalAttempts,
-            allowed_retry: task.taskRequirement.max_retry_per_task,
+            allowed_retry: task.taskRequirement.max_retry_per_task + 1,
             can_retry: status.canRetry,
           },
+          userPreferredLanguage,
         ),
       );
     }
@@ -1181,10 +1246,11 @@ export class GetTasksService {
           },
           {
             current_retry: 0,
-            allowed_retry: task.taskRequirement.max_retry_per_task,
+            allowed_retry: task.taskRequirement.max_retry_per_task + 1,
             acceptance_status: 'NOT_STARTED',
             can_retry: true,
           },
+          userPreferredLanguage,
         ),
       );
     }
@@ -1198,10 +1264,7 @@ export class GetTasksService {
         return a.can_retry ? -1 : 1; // true first
       }),
       batch: current_batch,
-      taskInstruction:
-        task.taskInstructions.length > 0
-          ? TaskInstructionRto.from(task.taskInstructions[0])
-          : undefined,
+      taskInstruction: task.taskInstruction,
       minimum_seconds: task.taskRequirement.minimum_seconds,
       maximum_seconds: task.taskRequirement.maximum_seconds,
       minimum_characters_length: task.taskRequirement.minimum_characters_length,
@@ -1250,7 +1313,7 @@ export class GetTasksService {
    *
    * Retry Logic:
    * - Retry eligibility is calculated using:
-   *   - `max_retry_per_task`
+   *   - `max_retry_per_task +1`
    *   - Submission history
    *
    * Batch Logic:
@@ -1279,6 +1342,7 @@ export class GetTasksService {
   private async handlePending(
     task: Task,
     userId: string,
+    userPreferredLanguage: LanguageConstants = LanguageConstants.ENGLISH,
   ): Promise<TaskMicroTasksResponse> {
     console.log(' ========== handlePending ==========');
     if (!task.is_public && task.require_contributor_test) {
@@ -1291,7 +1355,10 @@ export class GetTasksService {
             },
           },
           relations: {
-            dataSets: { rejectionReasons: { rejectionType: true } },
+            dataSets: {
+              rejectionReasons: { rejectionType: true },
+              dataSetReviews: true,
+            },
           },
         });
       if (contributorSubmittedMicroTasks.length > 0) {
@@ -1299,7 +1366,7 @@ export class GetTasksService {
         for (const microTask of contributorSubmittedMicroTasks) {
           const status = getMicroTaskStatus(
             microTask,
-            task.taskRequirement.max_retry_per_task,
+            task.taskRequirement.max_retry_per_task + 1,
           );
           contributorMicroTasks.push(
             ContributorMicroTaskRto.from(
@@ -1309,10 +1376,11 @@ export class GetTasksService {
               },
               {
                 current_retry: status.totalAttempts,
-                allowed_retry: task.taskRequirement.max_retry_per_task,
+                allowed_retry: task.taskRequirement.max_retry_per_task + 1,
                 acceptance_status: status.acceptanceStatus,
                 can_retry: status.canRetry,
               },
+              userPreferredLanguage,
             ),
           );
         }
@@ -1325,10 +1393,9 @@ export class GetTasksService {
             if (a.can_retry === b.can_retry) return 0;
             return a.can_retry ? -1 : 1; // true first
           }),
-          taskInstruction:
-            task.taskInstructions.length > 0
-              ? task.taskInstructions[0]
-              : undefined,
+          taskInstruction: task.taskInstruction
+            ? TaskInstructionRto.from(task.taskInstruction)
+            : undefined,
           minimum_seconds: task.taskRequirement.minimum_seconds,
           maximum_seconds: task.taskRequirement.maximum_seconds,
           minimum_characters_length:
@@ -1358,17 +1425,18 @@ export class GetTasksService {
           batch: 0,
           is_test: true,
           contributorMicroTask: testMicroTasks.map((microTask) => {
-            return ContributorMicroTaskRto.from(microTask, {
-              current_retry: 0,
-              allowed_retry: 1,
-              acceptance_status: 'NOT_STARTED',
-              can_retry: false,
-            });
+            return ContributorMicroTaskRto.from(
+              microTask,
+              {
+                current_retry: 0,
+                allowed_retry: 1,
+                acceptance_status: 'NOT_STARTED',
+                can_retry: false,
+              },
+              userPreferredLanguage,
+            );
           }),
-          taskInstruction:
-            task.taskInstructions.length > 0
-              ? task.taskInstructions[0]
-              : undefined,
+          taskInstruction: task.taskInstruction,
           minimum_seconds: task.taskRequirement.minimum_seconds,
           maximum_seconds: task.taskRequirement.maximum_seconds,
           minimum_characters_length:
@@ -1400,16 +1468,16 @@ export class GetTasksService {
       for (const mt of contributorSubmissions) {
         const status = getMicroTaskStatus(
           mt,
-          task.taskRequirement.max_retry_per_task,
+          task.taskRequirement.max_retry_per_task + 1,
         );
         result.push({
           ...mt,
           acceptance_status: status.acceptanceStatus,
           current_retry: status.totalAttempts,
-          allowed_retry: task.taskRequirement.max_retry_per_task,
+          allowed_retry: task.taskRequirement.max_retry_per_task + 1,
           can_retry: status.canRetry,
           dataSet: status.dataSet
-            ? ContributorDataSetRto.from(status.dataSet)
+            ? ContributorDataSetRto.from(status.dataSet, userPreferredLanguage)
             : undefined,
         });
       }
@@ -1422,10 +1490,7 @@ export class GetTasksService {
           if (a.can_retry === b.can_retry) return 0;
           return a.can_retry ? -1 : 1; // true first
         }),
-        taskInstruction:
-          task.taskInstructions.length > 0
-            ? task.taskInstructions[0]
-            : undefined,
+        taskInstruction: task.taskInstruction,
         minimum_seconds: task.taskRequirement.minimum_seconds,
         maximum_seconds: task.taskRequirement.maximum_seconds,
         minimum_characters_length:
@@ -1481,7 +1546,7 @@ export class GetTasksService {
           for (const microTask of contributorSubmissions) {
             const status = checkIfMicroTasIskRejectedAndTotalAttempts(
               microTask,
-              task.taskRequirement.max_retry_per_task,
+              task.taskRequirement.max_retry_per_task + 1,
             );
             result.push(
               ContributorMicroTaskRto.from(
@@ -1492,9 +1557,10 @@ export class GetTasksService {
                 {
                   acceptance_status: status.acceptanceStatus,
                   current_retry: status.totalAttempts,
-                  allowed_retry: task.taskRequirement.max_retry_per_task,
+                  allowed_retry: task.taskRequirement.max_retry_per_task + 1,
                   can_retry: status.canRetry,
                 },
+                userPreferredLanguage,
               ),
             );
           }
@@ -1512,10 +1578,11 @@ export class GetTasksService {
               },
               {
                 current_retry: 0,
-                allowed_retry: task.taskRequirement.max_retry_per_task,
+                allowed_retry: task.taskRequirement.max_retry_per_task + 1,
                 acceptance_status: 'NOT_STARTED',
                 can_retry: true,
               },
+              userPreferredLanguage,
             ),
           );
         }
@@ -1528,10 +1595,7 @@ export class GetTasksService {
             return a.can_retry ? -1 : 1; // true first
           }),
           batch: current_batch,
-          taskInstruction:
-            task.taskInstructions.length > 0
-              ? task.taskInstructions[0]
-              : undefined,
+          taskInstruction: task.taskInstruction,
           minimum_seconds: task.taskRequirement.minimum_seconds,
           maximum_seconds: task.taskRequirement.maximum_seconds,
           minimum_characters_length:
@@ -1574,10 +1638,7 @@ export class GetTasksService {
         batch: 0,
         is_test: false,
         contributorMicroTask: [],
-        taskInstruction:
-          task.taskInstructions.length > 0
-            ? task.taskInstructions[0]
-            : undefined,
+        taskInstruction: task.taskInstruction,
         minimum_seconds: task.taskRequirement.minimum_seconds,
         maximum_seconds: task.taskRequirement.maximum_seconds,
         minimum_characters_length:
@@ -1621,7 +1682,7 @@ export class GetTasksService {
    *
    * Retry Logic:
    * - Retry eligibility is calculated using:
-   *   - `max_retry_per_task`
+   *   - `max_retry_per_task +1`
    *   - Submission history per micro-task
    *
    * Batch Logic (non-test tasks):
@@ -1651,6 +1712,7 @@ export class GetTasksService {
   private async handleNewUser(
     task: Task,
     userId: string,
+    userPreferredLanguage: LanguageConstants = LanguageConstants.ENGLISH,
   ): Promise<TaskMicroTasksResponse> {
     console.log(' ========== handleNewUser ==========');
     // return all the test micro tasks
@@ -1669,10 +1731,7 @@ export class GetTasksService {
           batch: 0,
           is_test: false,
           contributorMicroTask: [],
-          taskInstruction:
-            task.taskInstructions.length > 0
-              ? task.taskInstructions[0]
-              : undefined,
+          taskInstruction: task.taskInstruction,
           minimum_seconds: task.taskRequirement.minimum_seconds,
           maximum_seconds: task.taskRequirement.maximum_seconds,
           minimum_characters_length:
@@ -1721,19 +1780,23 @@ export class GetTasksService {
       // Add the new microtasks
       for (const newM of newMicroTasks) {
         contributorTasks.push(
-          ContributorMicroTaskRto.from(newM, {
-            current_retry: 0,
-            allowed_retry: task.taskRequirement.max_retry_per_task,
-            acceptance_status: 'NOT_STARTED',
-            can_retry: false,
-          }),
+          ContributorMicroTaskRto.from(
+            newM,
+            {
+              current_retry: 0,
+              allowed_retry: task.taskRequirement.max_retry_per_task + 1,
+              acceptance_status: 'NOT_STARTED',
+              can_retry: false,
+            },
+            userPreferredLanguage,
+          ),
         );
       }
 
       for (const prevM of prevSubmissions) {
         const status = checkIfMicroTasIskRejectedAndTotalAttempts(
           prevM,
-          task.taskRequirement.max_retry_per_task,
+          task.taskRequirement.max_retry_per_task + 1,
         );
         contributorTasks.push(
           ContributorMicroTaskRto.from(
@@ -1744,9 +1807,10 @@ export class GetTasksService {
             {
               acceptance_status: status.acceptanceStatus,
               current_retry: status.totalAttempts,
-              allowed_retry: task.taskRequirement.max_retry_per_task,
+              allowed_retry: task.taskRequirement.max_retry_per_task + 1,
               can_retry: status.canRetry,
             },
+            userPreferredLanguage,
           ),
         );
       }
@@ -1760,10 +1824,7 @@ export class GetTasksService {
         has_passed: 'APPROVED',
         is_test: false,
         batch: 0,
-        taskInstruction:
-          task.taskInstructions.length > 0
-            ? task.taskInstructions[0]
-            : undefined,
+        taskInstruction: task.taskInstruction,
         minimum_seconds: task.taskRequirement.minimum_seconds,
         maximum_seconds: task.taskRequirement.maximum_seconds,
         minimum_characters_length:
@@ -1796,15 +1857,19 @@ export class GetTasksService {
         for (const microTask of contributorSubmissions) {
           const status = checkIfMicroTasIskRejectedAndTotalAttempts(
             microTask,
-            task.taskRequirement.max_retry_per_task,
+            task.taskRequirement.max_retry_per_task + 1,
           );
           contributorMicroTasks.push(
-            ContributorMicroTaskRto.from(microTask, {
-              current_retry: status.totalAttempts,
-              allowed_retry: task.taskRequirement.max_retry_per_task,
-              acceptance_status: status.acceptanceStatus,
-              can_retry: status.canRetry,
-            }),
+            ContributorMicroTaskRto.from(
+              microTask,
+              {
+                current_retry: status.totalAttempts,
+                allowed_retry: task.taskRequirement.max_retry_per_task + 1,
+                acceptance_status: status.acceptanceStatus,
+                can_retry: status.canRetry,
+              },
+              userPreferredLanguage,
+            ),
           );
         }
         return TaskMicroTasksResponse.from({
@@ -1816,10 +1881,7 @@ export class GetTasksService {
             if (a.can_retry === b.can_retry) return 0;
             return a.can_retry ? -1 : 1; // true first
           }),
-          taskInstruction:
-            task.taskInstructions.length > 0
-              ? task.taskInstructions[0]
-              : undefined,
+          taskInstruction: task.taskInstruction,
           minimum_seconds: task.taskRequirement.minimum_seconds,
           maximum_seconds: task.taskRequirement.maximum_seconds,
           minimum_characters_length:
@@ -1844,17 +1906,18 @@ export class GetTasksService {
           is_test: true,
           ...task,
           contributorMicroTask: testMicroTasks.map((microTask) => {
-            return ContributorMicroTaskRto.from(microTask, {
-              current_retry: 0,
-              allowed_retry: task.taskRequirement.max_retry_per_task,
-              acceptance_status: 'NOT_STARTED',
-              can_retry: false,
-            });
+            return ContributorMicroTaskRto.from(
+              microTask,
+              {
+                current_retry: 0,
+                allowed_retry: task.taskRequirement.max_retry_per_task + 1,
+                acceptance_status: 'NOT_STARTED',
+                can_retry: false,
+              },
+              userPreferredLanguage,
+            );
           }),
-          taskInstruction:
-            task.taskInstructions.length > 0
-              ? task.taskInstructions[0]
-              : undefined,
+          taskInstruction: task.taskInstruction,
           minimum_seconds: task.taskRequirement.minimum_seconds,
           maximum_seconds: task.taskRequirement.maximum_seconds,
           minimum_characters_length:
@@ -1905,16 +1968,15 @@ export class GetTasksService {
   private async handlePendingOrInActive(
     task: Task,
     userId: string,
+    userPreferredLanguage: LanguageConstants = LanguageConstants.ENGLISH,
   ): Promise<TaskMicroTasksResponse> {
-    console.log(' ========== handlePendingOrInActive ==========');
     return TaskMicroTasksResponse.from({
       ...task,
       has_passed: 'FLAGGED',
       batch: 0,
       is_test: false,
       contributorMicroTask: [],
-      taskInstruction:
-        task.taskInstructions.length > 0 ? task.taskInstructions[0] : undefined,
+      taskInstruction: task.taskInstruction,
       minimum_seconds: task.taskRequirement.minimum_seconds,
       maximum_seconds: task.taskRequirement.maximum_seconds,
       minimum_characters_length: task.taskRequirement.minimum_characters_length,
@@ -2055,8 +2117,8 @@ export class GetTasksService {
   //               task_type: task.taskType.task_type,
   //               average_time: task.taskRequirement.appriximate_time_per_batch,
   //               taskInstruction:
-  //                 task.taskInstructions.length > 0
-  //                   ? task.taskInstructions[0].content
+  //                 task.taskInstruction.length > 0
+  //                   ? task.taskInstruction[0].content
   //                   : '',
   //             };
   //           } else {
@@ -2074,8 +2136,8 @@ export class GetTasksService {
   //             ...task,
   //             task_type: task.taskType.task_type,
   //             taskInstruction:
-  //               task.taskInstructions.length > 0
-  //                 ? task.taskInstructions[0].content
+  //               task.taskInstruction.length > 0
+  //                 ? task.taskInstruction[0].content
   //                 : '',
   //             done_count,
   //             total_count,
@@ -2108,7 +2170,7 @@ export class GetTasksService {
   //       taskRequirement: true,
   //       taskType: true,
   //       microTasks: true,
-  //       taskInstructions: true,
+  //       taskInstruction: true,
   //       payment: true,
   //     },
   //   });
@@ -2147,13 +2209,13 @@ export class GetTasksService {
   //       for (const microTask of microTasks) {
   //         const status = getMicroTaskStatus(
   //           microTask,
-  //           task.taskRequirement.max_retry_per_task,
+  //           task.taskRequirement.max_retry_per_task +1,
   //         );
   //         contributorMicroTasks.push({
   //           ...microTask,
   //           acceptance_status: status.acceptanceStatus,
   //           current_retry: status.totalAttempts,
-  //           allowed_retry: task.taskRequirement.max_retry_per_task,
+  //           allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //           can_retry: status.canRetry,
   //           dataSet: status.dataSet
   //             ? ContributorDataSetRto.from(status.dataSet)
@@ -2176,8 +2238,8 @@ export class GetTasksService {
   //         is_test: true,
   //         contributorMicroTask: contributorMicroTasks,
   //         taskInstruction:
-  //           task.taskInstructions.length > 0
-  //             ? TaskInstructionRto.from(task.taskInstructions[0])
+  //           task.taskInstruction.length > 0
+  //             ? TaskInstructionRto.from(task.taskInstruction[0])
   //             : undefined,
   //         minimum_seconds: task.taskRequirement.minimum_seconds,
   //         maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2217,13 +2279,13 @@ export class GetTasksService {
   //         for (const mt of microTasksDone) {
   //           const status = getMicroTaskStatus(
   //             mt,
-  //             task.taskRequirement.max_retry_per_task,
+  //             task.taskRequirement.max_retry_per_task +1,
   //           );
   //           result.push({
   //             ...mt,
   //             acceptance_status: status.acceptanceStatus,
   //             current_retry: status.totalAttempts,
-  //             allowed_retry: task.taskRequirement.max_retry_per_task,
+  //             allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //             can_retry: status.canRetry,
   //             dataSet: status.dataSet
   //               ? ContributorDataSetRto.from(status.dataSet)
@@ -2240,8 +2302,8 @@ export class GetTasksService {
   //             return a.can_retry ? -1 : 1; // true first
   //           }),
   //           taskInstruction:
-  //             task.taskInstructions.length > 0
-  //               ? TaskInstructionRto.from(task.taskInstructions[0])
+  //             task.taskInstruction.length > 0
+  //               ? TaskInstructionRto.from(task.taskInstruction[0])
   //               : undefined,
   //           minimum_seconds: task.taskRequirement.minimum_seconds,
   //           maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2299,7 +2361,7 @@ export class GetTasksService {
   //       for (const microTask of prevDoneMicroTasks) {
   //         const status = checkIfMicroTasIskRejectedAndTotalAttempts(
   //           microTask,
-  //           task.taskRequirement.max_retry_per_task,
+  //           task.taskRequirement.max_retry_per_task +1,
   //         );
   //         result.push(
   //           ContributorMicroTaskRto.from(
@@ -2312,7 +2374,7 @@ export class GetTasksService {
   //             {
   //               acceptance_status: status.acceptanceStatus,
   //               current_retry: status.totalAttempts,
-  //               allowed_retry: task.taskRequirement.max_retry_per_task,
+  //               allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //               can_retry: status.canRetry,
   //             },
   //           ),
@@ -2328,7 +2390,7 @@ export class GetTasksService {
   //             },
   //             {
   //               current_retry: 0,
-  //               allowed_retry: task.taskRequirement.max_retry_per_task,
+  //               allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //               acceptance_status: 'NOT_STARTED',
   //               can_retry: true,
   //             },
@@ -2346,8 +2408,8 @@ export class GetTasksService {
   //         }),
   //         batch: current_batch,
   //         taskInstruction:
-  //           task.taskInstructions.length > 0
-  //             ? TaskInstructionRto.from(task.taskInstructions[0])
+  //           task.taskInstruction.length > 0
+  //             ? TaskInstructionRto.from(task.taskInstruction[0])
   //             : undefined,
   //         minimum_seconds: task.taskRequirement.minimum_seconds,
   //         maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2381,7 +2443,7 @@ export class GetTasksService {
   //           for (const microTask of contributorSubmittedMicroTasks) {
   //             const status = getMicroTaskStatus(
   //               microTask,
-  //               task.taskRequirement.max_retry_per_task,
+  //               task.taskRequirement.max_retry_per_task +1,
   //             );
   //             contributorMicroTasks.push(
   //               ContributorMicroTaskRto.from(
@@ -2393,7 +2455,7 @@ export class GetTasksService {
   //                 },
   //                 {
   //                   current_retry: status.totalAttempts,
-  //                   allowed_retry: task.taskRequirement.max_retry_per_task,
+  //                   allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //                   acceptance_status: status.acceptanceStatus,
   //                   can_retry: status.canRetry,
   //                 },
@@ -2410,8 +2472,8 @@ export class GetTasksService {
   //               return a.can_retry ? -1 : 1; // true first
   //             }),
   //             taskInstruction:
-  //               task.taskInstructions.length > 0
-  //                 ? task.taskInstructions[0]
+  //               task.taskInstruction.length > 0
+  //                 ? task.taskInstruction[0]
   //                 : undefined,
   //             minimum_seconds: task.taskRequirement.minimum_seconds,
   //             maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2450,8 +2512,8 @@ export class GetTasksService {
   //               });
   //             }),
   //             taskInstruction:
-  //               task.taskInstructions.length > 0
-  //                 ? task.taskInstructions[0]
+  //               task.taskInstruction.length > 0
+  //                 ? task.taskInstruction[0]
   //                 : undefined,
   //             minimum_seconds: task.taskRequirement.minimum_seconds,
   //             maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2485,13 +2547,13 @@ export class GetTasksService {
   //         for (const mt of microTasksDone) {
   //           const status = getMicroTaskStatus(
   //             mt,
-  //             task.taskRequirement.max_retry_per_task,
+  //             task.taskRequirement.max_retry_per_task +1,
   //           );
   //           result.push({
   //             ...mt,
   //             acceptance_status: status.acceptanceStatus,
   //             current_retry: status.totalAttempts,
-  //             allowed_retry: task.taskRequirement.max_retry_per_task,
+  //             allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //             can_retry: status.canRetry,
   //             dataSet: status.dataSet
   //               ? ContributorDataSetRto.from(status.dataSet)
@@ -2508,8 +2570,8 @@ export class GetTasksService {
   //             return a.can_retry ? -1 : 1; // true first
   //           }),
   //           taskInstruction:
-  //             task.taskInstructions.length > 0
-  //               ? task.taskInstructions[0]
+  //             task.taskInstruction.length > 0
+  //               ? task.taskInstruction[0]
   //               : undefined,
   //           minimum_seconds: task.taskRequirement.minimum_seconds,
   //           maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2568,7 +2630,7 @@ export class GetTasksService {
   //             for (const microTask of contributorTasks.microTasks) {
   //               const status = checkIfMicroTasIskRejectedAndTotalAttempts(
   //                 microTask,
-  //                 task.taskRequirement.max_retry_per_task,
+  //                 task.taskRequirement.max_retry_per_task +1,
   //               );
   //               result.push(
   //                 ContributorMicroTaskRto.from(
@@ -2581,7 +2643,7 @@ export class GetTasksService {
   //                   {
   //                     acceptance_status: status.acceptanceStatus,
   //                     current_retry: status.totalAttempts,
-  //                     allowed_retry: task.taskRequirement.max_retry_per_task,
+  //                     allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //                     can_retry: status.canRetry,
   //                   },
   //                 ),
@@ -2604,7 +2666,7 @@ export class GetTasksService {
   //                 },
   //                 {
   //                   current_retry: 0,
-  //                   allowed_retry: task.taskRequirement.max_retry_per_task,
+  //                   allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //                   acceptance_status: 'NOT_STARTED',
   //                   can_retry: true,
   //                 },
@@ -2621,8 +2683,8 @@ export class GetTasksService {
   //             }),
   //             batch: current_batch,
   //             taskInstruction:
-  //               task.taskInstructions.length > 0
-  //                 ? task.taskInstructions[0]
+  //               task.taskInstruction.length > 0
+  //                 ? task.taskInstruction[0]
   //                 : undefined,
   //             minimum_seconds: task.taskRequirement.minimum_seconds,
   //             maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2667,8 +2729,8 @@ export class GetTasksService {
   //           is_test: false,
   //           contributorMicroTask: [],
   //           taskInstruction:
-  //             task.taskInstructions.length > 0
-  //               ? task.taskInstructions[0]
+  //             task.taskInstruction.length > 0
+  //               ? task.taskInstruction[0]
   //               : undefined,
   //           minimum_seconds: task.taskRequirement.minimum_seconds,
   //           maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2692,8 +2754,8 @@ export class GetTasksService {
   //         is_test: false,
   //         contributorMicroTask: [],
   //         taskInstruction:
-  //           task.taskInstructions.length > 0
-  //             ? task.taskInstructions[0]
+  //           task.taskInstruction.length > 0
+  //             ? task.taskInstruction[0]
   //             : undefined,
   //         minimum_seconds: task.taskRequirement.minimum_seconds,
   //         maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2727,8 +2789,8 @@ export class GetTasksService {
   //           is_test: false,
   //           contributorMicroTask: [],
   //           taskInstruction:
-  //             task.taskInstructions.length > 0
-  //               ? task.taskInstructions[0]
+  //             task.taskInstruction.length > 0
+  //               ? task.taskInstruction[0]
   //               : undefined,
   //           minimum_seconds: task.taskRequirement.minimum_seconds,
   //           maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2765,7 +2827,7 @@ export class GetTasksService {
   //         contributorTasks.push(
   //           ContributorMicroTaskRto.from(newM, {
   //             current_retry: 0,
-  //             allowed_retry: task.taskRequirement.max_retry_per_task,
+  //             allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //             acceptance_status: 'NOT_STARTED',
   //             can_retry: false,
   //           }),
@@ -2781,8 +2843,8 @@ export class GetTasksService {
   //         is_test: false,
   //         batch: 0,
   //         taskInstruction:
-  //           task.taskInstructions.length > 0
-  //             ? task.taskInstructions[0]
+  //           task.taskInstruction.length > 0
+  //             ? task.taskInstruction[0]
   //             : undefined,
   //         minimum_seconds: task.taskRequirement.minimum_seconds,
   //         maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2824,12 +2886,12 @@ export class GetTasksService {
   //         for (const microTask of contributedMicroTasksBefore) {
   //           const status = checkIfMicroTasIskRejectedAndTotalAttempts(
   //             microTask,
-  //             task.taskRequirement.max_retry_per_task,
+  //             task.taskRequirement.max_retry_per_task +1,
   //           );
   //           contributorMicroTasks.push(
   //             ContributorMicroTaskRto.from(microTask, {
   //               current_retry: status.totalAttempts,
-  //               allowed_retry: task.taskRequirement.max_retry_per_task,
+  //               allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //               acceptance_status: status.acceptanceStatus,
   //               can_retry: status.canRetry,
   //             }),
@@ -2845,8 +2907,8 @@ export class GetTasksService {
   //             return a.can_retry ? -1 : 1; // true first
   //           }),
   //           taskInstruction:
-  //             task.taskInstructions.length > 0
-  //               ? task.taskInstructions[0]
+  //             task.taskInstruction.length > 0
+  //               ? task.taskInstruction[0]
   //               : undefined,
   //           minimum_seconds: task.taskRequirement.minimum_seconds,
   //           maximum_seconds: task.taskRequirement.maximum_seconds,
@@ -2874,14 +2936,14 @@ export class GetTasksService {
   //           contributorMicroTask: testMicroTasks.map((microTask) => {
   //             return ContributorMicroTaskRto.from(microTask, {
   //               current_retry: 0,
-  //               allowed_retry: task.taskRequirement.max_retry_per_task,
+  //               allowed_retry: task.taskRequirement.max_retry_per_task +1,
   //               acceptance_status: 'NOT_STARTED',
   //               can_retry: false,
   //             });
   //           }),
   //           taskInstruction:
-  //             task.taskInstructions.length > 0
-  //               ? task.taskInstructions[0]
+  //             task.taskInstruction.length > 0
+  //               ? task.taskInstruction[0]
   //               : undefined,
   //           minimum_seconds: task.taskRequirement.minimum_seconds,
   //           maximum_seconds: task.taskRequirement.maximum_seconds,

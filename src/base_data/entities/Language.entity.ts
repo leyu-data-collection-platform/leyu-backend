@@ -20,6 +20,12 @@ export class Language {
   @Column({ unique: true })
   name: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+
   @Column({ nullable: true, unique: true })
   code: string;
 

@@ -6,7 +6,6 @@ import {
   Param,
   Delete,
   Put,
-  UsePipes,
   Query,
   UseGuards,
   Request,
@@ -19,28 +18,30 @@ import {
   ApiOperation,
   ApiExtraModels,
   getSchemaPath,
+  ApiHeaders,
 } from '@nestjs/swagger';
 import { ZoneService } from '../service/Zone.service';
 import { CreateZoneDto, UpdateZoneDto } from '../dto/Zone.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { PaginatedResult } from 'src/utils/paginate.util';
 import { ZoneSanitized } from '../sanitize';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/zone')
 @ApiTags('Zone')
 export class ZoneController {
   constructor(private readonly zoneService: ZoneService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe(CreateZoneDto))
   @ApiResponse({
     status: 201,
     description: 'The zone has been successfully created.',
   })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async create(@Body() createZoneDto: CreateZoneDto, @Request() req) {
     return await this.zoneService.create({
       ...createZoneDto,
@@ -81,9 +82,15 @@ export class ZoneController {
     description: 'Returns a list of zones.',
     type: [ZoneSanitized],
   })
-  async findAll(@Query() searchDto: UpdateZoneDto): Promise<ZoneSanitized[]> {
+  @ApiHeaders([{ name: 'accept-language', required: false }])
+  async findAll(
+    @Query() searchDto: UpdateZoneDto,
+    @Request() req,
+  ): Promise<ZoneSanitized[]> {
     const zone = await this.zoneService.findAll(searchDto);
-    return zone.map((item) => ZoneSanitized.from(item));
+    const preferredLanguage =
+      (req.headers['accept-language'] as string) || 'en';
+    return zone.map((item) => ZoneSanitized.from(item, preferredLanguage));
   }
 
   @Get('/region/:id')
@@ -117,9 +124,10 @@ export class ZoneController {
   })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(UpdateZoneDto)) updateZoneDto: UpdateZoneDto,
+    @Body() updateZoneDto: UpdateZoneDto,
     @Request() request,
   ) {
     return await this.zoneService.update(id, {
@@ -127,6 +135,19 @@ export class ZoneController {
       updated_by: request.user.id,
     });
   }
+
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.zoneService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
 
   @Delete(':id')
   @ApiBearerAuth()

@@ -23,12 +23,15 @@ import {
   TaskDataSetReviewerDistributionRto,
   TaskReviewersProgressRto,
 } from '../rto/TaskMonitoring.rto';
+import { ReviewerTaskDistributionsService } from '../service/ReviewerTaskDistribution.service';
+import { ContributorTaskProgressRto } from '../rto/Task.rto';
 @Controller('task-distribution-monitoring')
 @ApiTags('Task Distribution Monitoring')
 @ApiBearerAuth()
 export class TaskDistributionMonitoringController {
   constructor(
     private readonly taskDistributionMonitoringService: TaskDistributionMonitoringService,
+    private readonly reviewerTaskDistributionService: ReviewerTaskDistributionsService,
   ) {}
 
   @Get('statistics/:task_id')
@@ -101,9 +104,28 @@ export class TaskDistributionMonitoringController {
     @Param('task_id') task_id: string,
     @Query() paginationDto: PaginationDto,
   ) {
-    return this.taskDistributionMonitoringService.getTaskReviewerStats(
+    return this.reviewerTaskDistributionService.getTaskReviewerStats(
       task_id,
       paginationDto,
+    );
+  }
+
+  @Get('statistics/:contributor_id/:task_id/overview')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.PROJECT_MANAGER, Role.ADMIN, Role.FACILITATOR)
+  @ApiProperty({
+    description: 'The api returns the contributor task progress stats',
+    type: ContributorTaskProgressRto,
+  })
+  async getContributorTaskProgress(
+    @Param('task_id') task_id: string,
+    @Param('contributor_id') contributor_id: string,
+    @Request() req,
+  ) {
+    const user_id = req.user.id;
+    return this.taskDistributionMonitoringService.getContributorTaskProgress(
+      task_id,
+      contributor_id,
     );
   }
 }

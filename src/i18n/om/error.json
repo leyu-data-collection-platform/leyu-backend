@@ -1,0 +1,9 @@
+{
+  "INTERNAL_SERVER_ERROR": "የውስጥ አገልጋይ ስህተት",
+  "NOT_FOUND": "ምንጩ አልተገኘም",
+  "UNAUTHORIZED": "ያልተፈቀደ",
+  "FORBIDDEN": "መዳረሻ ተከልክሏል",
+  "BAD_REQUEST": "ትክክል ያልሆነ ጥያቄ",
+  "VALIDATION_FAILED": "ማረጋገጫ አልተሳካም",
+  "CONFLICT": "ግጭት"
+}

@@ -1,4 +1,4 @@
-import { IsBoolean } from 'class-validator';
+import { IsBoolean, MaxLength } from 'class-validator';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 
 import {
@@ -14,6 +14,7 @@ import {
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { LanguageConstants } from 'src/utils/constants/Language.constant';
 
 export class CreateUserDto {
   @ApiProperty()
@@ -158,6 +159,11 @@ export class FirstContributorUpdateDto {
   @IsOptional()
   @IsUUID()
   zone_id?: string;
+
+  @ApiProperty({})
+  @IsOptional()
+  @IsString()
+  referral_code?: string;
 }
 export class UpdateProfileDto {
   @ApiProperty()
@@ -322,6 +328,13 @@ export class ChangePasswordDto {
   new_password: string;
 }
 
+export class UpdateReferralCode {
+  @ApiProperty()
+  @IsString()
+  @MaxLength(8)
+  referral_code: string;
+}
+
 export class UserSearchWithPaginationDto {
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
@@ -380,10 +393,13 @@ export class GetUsersFilterDto extends PaginationDto {
   @IsString()
   phone_number?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by gender (e.g., Male, Female)' })
+  @ApiPropertyOptional({
+    description: 'Filter by gender (e.g., Male, Female)',
+    enum: ['Male', 'Female'],
+  })
   @IsOptional()
-  @IsString()
-  gender?: string;
+  @IsEnum(['Male', 'Female'])
+  gender?: 'Male' | 'Female';
 
   @ApiPropertyOptional({ description: 'Filter by active status' })
   @IsOptional()
@@ -425,6 +441,12 @@ export class GetUsersFilterDto extends PaginationDto {
   @IsDate()
   @Type(() => Date)
   created_end_date?: Date;
+}
+export class GetFacilitatorContributorsFilterDto extends GetUsersFilterDto {
+  @ApiPropertyOptional({ description: 'Filter by my referrals' })
+  @IsOptional()
+  @IsUUID()
+  facilitator_id_for_referral?: string;
 }
 export class GetContributorFilterDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'Filter by first name' })
@@ -485,4 +507,24 @@ export class GetContributorFilterDto extends PaginationDto {
   @IsOptional()
   @IsUUID()
   dialect_id?: string;
+}
+
+export class UpdatePreferredLanguageDto {
+  @ApiPropertyOptional({
+    description: 'Language key',
+    example: 'en',
+    enum: LanguageConstants,
+  })
+  @IsEnum(LanguageConstants)
+  language_key: LanguageConstants;
+}
+
+export class UserExistDto {
+  @ApiPropertyOptional({ description: 'user by email' })
+  @IsString()
+  email: string;
+
+  @ApiPropertyOptional({ description: 'user by phone number' })
+  @IsUUID()
+  role_id: string;
 }

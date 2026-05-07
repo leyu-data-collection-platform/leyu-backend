@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 import { PaginatedResult } from 'src/utils/paginate.util';
 import { PaginationService } from 'src/common/service/pagination.service';
@@ -37,10 +37,67 @@ export class DataSetAnnotationService {
   }
 
   async findAll(
-    query: Partial<DataSetAnnotation>,
+    query: FindOptionsWhere<DataSetAnnotation>,
   ): Promise<DataSetAnnotation[]> {
     return await this.dataSetAnnotationRepository.find({ where: query });
   }
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<DataSetAnnotation> {
+    const annotationType = await this.dataSetAnnotationRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      throw new BadRequestException('Language already exists');
+    }
+    annotationType.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.dataSetAnnotationRepository.save(annotationType);
+  }
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<DataSetAnnotation> {
+    const annotationType = await this.dataSetAnnotationRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.dataSetAnnotationRepository.save(annotationType);
+  }
+
   async findPaginate(
     queryOption: QueryOptions<DataSetAnnotation>,
     paginationDto: PaginationDto,

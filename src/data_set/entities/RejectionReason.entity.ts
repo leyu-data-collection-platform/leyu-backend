@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { DataSet } from './DataSet.entity';
 import { RejectionType } from 'src/base_data/entities/RejectionType.entity';
+import { DataSetReview } from 'src/task_distribution/enitities/DataSetReview.entity';
 
 @Entity()
 export class RejectionReason {
@@ -17,9 +18,6 @@ export class RejectionReason {
 
   @Column({ nullable: true })
   reason: string;
-
-  @Column({ nullable: true })
-  comment: string;
 
   @Column({ nullable: false })
   rejection_type_id: string;
@@ -36,6 +34,15 @@ export class RejectionReason {
   dataSet: DataSet;
   @Column({ nullable: false })
   data_set_id: string;
+
+  @ManyToOne(
+    () => DataSetReview,
+    (dateSetReview) => dateSetReview.rejectionReasons,
+  )
+  @JoinColumn({ name: 'data_set_review_id' })
+  dateSetReview: DataSetReview;
+  @Column({ nullable: false })
+  data_set_review_id: string;
 
   // Rejection Reason Type belongs to Rejection Type
   @ManyToOne(

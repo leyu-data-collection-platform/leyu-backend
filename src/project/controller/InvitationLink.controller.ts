@@ -13,11 +13,10 @@ import { RolesGuard } from 'src/auth/guard/role.guard';
 import { InvitationLinkService } from '../service/InvitationLink.service';
 import { Role } from 'src/auth/decorators/roles.enum';
 import { Roles } from 'src/auth/decorators/roles.decorator';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 import {
   AcceptInvitationDto,
-  createInvitationLinkDto,
+  CreateInvitationLinkDto,
 } from '../dto/InvitationLink.dto';
 @Controller('/project-mgmt/invitation-link')
 @ApiTags('InvitationLink')
@@ -83,8 +82,7 @@ export class InivitationController {
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   async createProjectInvitationLink(
     @Param('project_id') project_id: string,
-    @Body(new ZodValidationPipe(createInvitationLinkDto))
-    invitationData: createInvitationLinkDto,
+    invitationData: CreateInvitationLinkDto,
   ) {
     return this.invitationLinkService.createProjectInvitationLink(
       project_id,
@@ -96,8 +94,8 @@ export class InivitationController {
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   async invite(
     @Param('task_id') task_id: string,
-    @Body(new ZodValidationPipe(createInvitationLinkDto))
-    invitationData: createInvitationLinkDto,
+    @Body()
+    invitationData: CreateInvitationLinkDto,
   ) {
     return this.invitationLinkService.createTaskInvitationLink(
       task_id,

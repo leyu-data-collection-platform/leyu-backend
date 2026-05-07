@@ -1,66 +1,125 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import {
+  IsString,
+  IsEmail,
+  MinLength,
+  IsOptional,
+  IsEnum,
+  IsUUID,
+  IsNumber,
+  IsDate,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
 
-export const createInvitationLinkSchema = z.object({
-  expiry_date: z
-    .string()
-    .refine((val) => !isNaN(Date.parse(val)), {
-      message: 'Invalid date format',
-    })
-    .transform((val) => new Date(val)),
-  role: z.enum(['Contributor', 'Reviewer']).optional(),
-  organization_id: z.string().uuid().optional(),
-  max_invitations: z.number().optional(),
-});
+/* =======================
+   ENUMS
+======================= */
+export enum Role {
+  Contributor = 'Contributor',
+  Reviewer = 'Reviewer',
+}
 
-export const updateInvitationLinkSchema = createInvitationLinkSchema.partial();
-export const createUserSchema = z
-  .object({
-    first_name: z.string().min(3),
-    middle_name: z.string().min(3),
-    last_name: z.string().min(3),
-    email: z.string().email(),
-    password: z.string().min(6),
-    birth_date: z
-      .string()
-      .refine((val) => !isNaN(Date.parse(val)), {
-        message: 'Invalid date format',
-      })
-      .transform((val) => new Date(val)),
-    gender: z.enum(['Male', 'Female']),
-    city: z
-      .string()
-      .optional()
-      .transform((e) => (e === '' ? undefined : e)),
-    woreda: z
-      .string()
-      .optional()
-      .transform((e) => (e === '' ? undefined : e)),
-    dialect_id: z
-      .string()
-      .uuid()
-      .optional()
-      .transform((e) => (e === '' ? undefined : e)),
-    language_id: z
-      .string()
-      .uuid()
-      .transform((e) => (e === '' ? undefined : e)),
-    region_id: z
-      .string()
-      .uuid()
-      .optional()
-      .transform((e) => (e === '' ? undefined : e)),
-    zone_id: z
-      .string()
-      .uuid()
-      .optional()
-      .transform((e) => (e === '' ? undefined : e)),
-  })
-  .required();
-export class AcceptInvitationDto extends createZodDto(createUserSchema) {}
-export class createInvitationLinkDto extends createZodDto(
-  createInvitationLinkSchema,
-) {}
-export class updateInvitationLinkDto extends createZodDto(
-  updateInvitationLinkSchema,
-) {}
+export enum Gender {
+  Male = 'Male',
+  Female = 'Female',
+}
+
+/* =======================
+   INVITATION LINK DTOs
+======================= */
+export class CreateInvitationLinkDto {
+  @IsString()
+  @Transform(({ value }) => new Date(value))
+  @IsDate()
+  expiry_date: Date;
+
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+
+  @IsOptional()
+  @IsUUID()
+  organization_id?: string;
+
+  @IsOptional()
+  @IsNumber()
+  max_invitations?: number;
+}
+
+export class UpdateInvitationLinkDto {
+  @IsOptional()
+  @Transform(({ value }) => new Date(value))
+  @IsDate()
+  expiry_date?: Date;
+
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+
+  @IsOptional()
+  @IsUUID()
+  organization_id?: string;
+
+  @IsOptional()
+  @IsNumber()
+  max_invitations?: number;
+}
+
+/* =======================
+   USER DTO
+======================= */
+export class AcceptInvitationDto {
+  @IsString()
+  @MinLength(3)
+  first_name: string;
+
+  @IsString()
+  @MinLength(3)
+  middle_name: string;
+
+  @IsString()
+  @MinLength(3)
+  last_name: string;
+
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @MinLength(6)
+  password: string;
+
+  @Transform(({ value }) => new Date(value))
+  @IsDate()
+  birth_date: Date;
+
+  @IsEnum(Gender)
+  gender: Gender;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsString()
+  woreda?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsUUID()
+  dialect_id?: string;
+
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsUUID()
+  language_id: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsUUID()
+  region_id?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsUUID()
+  zone_id?: string;
+}

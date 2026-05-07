@@ -25,12 +25,13 @@ export class NotificationService {
     title: string;
     message: string;
     type: 'task-assign' | 'task-invitation' | 'task-rejected' | 'task-approved';
-  }): Promise<void> {
-    await this.rabbitPublishService.publishNotificationEvent({
+  }): Promise<boolean> {
+    console.log('notificationData', notificationData);
+    return await this.rabbitPublishService.publishNotificationEvent({
       userId: notificationData.user_id,
       notificationType: notificationData.type,
       title: notificationData.title,
-      displayName: 'John Doe',
+      displayName: 'Leyu',
       message: notificationData.message,
       payload: { title: notificationData.title },
     });

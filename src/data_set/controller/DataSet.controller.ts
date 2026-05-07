@@ -6,7 +6,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   ParseUUIDPipe,
@@ -18,34 +17,25 @@ import {
   ApiQuery,
   ApiExtraModels,
   getSchemaPath,
+  ApiProperty,
 } from '@nestjs/swagger';
 import {
-  ApproveDataSetDto,
-  FindContributorDatesetDto,
-  FindReviewerDataSetDto,
+  FindContributorDatasetDto,
   GetDataSetDto,
   TaskSubmissionsDto,
   UpdateDataSetDto,
 } from '../dto/DataSet.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/decorators/roles.enum';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { DataSetService } from '../service/DataSet.service';
-import { DataSource, FindOptionsWhere, QueryRunner } from 'typeorm';
-import { CreateRejectionReasonDto } from '../dto/RejectionReason.dto';
-import { ActivityLogService } from 'src/common/service/ActivityLog.service';
-import {
-  ActivityEntityType,
-  ActivityLogActions,
-} from 'src/utils/constants/ActivityLog.actions';
+import { FindOptionsWhere } from 'typeorm';
 import { DataSet } from '../entities/DataSet.entity';
 import { PaginatedResult } from 'src/utils/paginate.util';
 import { DataSetSanitize } from '../sanitize';
-import { RejectionReason } from '../entities/RejectionReason.entity';
-import { PublisherService } from 'src/common/service/RabbitPublish.service';
+import { DataSetDetailRto } from '../rto/DataSet.rto'; // <-- Add this import if DataSetDetailsRto is defined there
 @Controller('workspace/data-set')
 @ApiTags('DataSet')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -54,9 +44,6 @@ import { PublisherService } from 'src/common/service/RabbitPublish.service';
 export class DataSetController {
   constructor(
     private readonly dataSetService: DataSetService, // create a query runner for transaction
-    private readonly dataSource: DataSource, // Inject DataSource for transactions
-    private readonly activityLogService: ActivityLogService,
-    private readonly publishService: PublisherService,
   ) {}
 
   @Get()
@@ -64,7 +51,6 @@ export class DataSetController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER, Role.CONTRIBUTOR)
-  @UsePipes(new ZodValidationPipe())
   @ApiResponse({
     status: 200,
     schema: {
@@ -109,7 +95,6 @@ export class DataSetController {
   @Get('all')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CONTRIBUTOR)
-  @UsePipes(new ZodValidationPipe())
   @ApiResponse({
     status: 200,
     schema: {
@@ -169,43 +154,6 @@ export class DataSetController {
   ) {
     const user = req.user;
     return this.dataSetService.contributorSubmission(microTaskId, user.id);
-  }
-  @Get('reviewer/:task_id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.REVIEWER)
-  @ApiResponse({
-    status: 200,
-    schema: {
-      allOf: [
-        { $ref: getSchemaPath(PaginatedResult) },
-        {
-          properties: {
-            result: {
-              type: 'array',
-              items: { $ref: getSchemaPath(DataSetSanitize) },
-            },
-          },
-        },
-      ],
-    },
-  })
-  async findReviewerDataSets(
-    @Param('task_id', ParseUUIDPipe) task_id: string,
-    @Query() filterDataSetDto: FindReviewerDataSetDto,
-    @Request() req,
-  ) {
-    const user_id = req.user.id;
-    const data = await this.dataSetService.findReviewerDataSets(
-      user_id,
-      task_id,
-      { page: filterDataSetDto.page, limit: filterDataSetDto.limit },
-      filterDataSetDto.status,
-    );
-    const result = data.result.map((item) => DataSetSanitize.from(item));
-    return {
-      ...data,
-      result,
-    };
   }
 
   @Get('task/:task_id')
@@ -302,12 +250,9 @@ export class DataSetController {
   @Get('/facilitator/contributor/submissions/:task_id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FACILITATOR)
-  @ApiQuery({ name: 'contributor_id', required: false, type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
   async getContributorDataSets(
     @Param('task_id', ParseUUIDPipe) task_id: string,
-    @Query() query: FindContributorDatesetDto,
+    @Query() query: FindContributorDatasetDto,
     @Request() req,
   ) {
     return this.dataSetService.getTaskDataSetsSubmissionsPerContributor(
@@ -320,7 +265,6 @@ export class DataSetController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
     return this.dataSetService.findOne({
       where: { id },
@@ -328,178 +272,22 @@ export class DataSetController {
     });
   }
 
-  @Put('/approve/:id')
+  @Get('details/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(
-    Role.ADMIN,
-    Role.SUPER_ADMIN,
-    Role.PROJECT_MANAGER,
-    Role.REVIEWER,
-    Role.FACILITATOR,
-  )
-  async approve(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: ApproveDataSetDto,
-    @Request() req,
-  ) {
-    // create query runner
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      await this.dataSetService.approveDataSet(
-        id,
-        req.user.id,
-        queryRunner,
-        body.annotation,
-      );
-      await this.activityLogService.create({
-        user_id: req.user.id,
-        action: ActivityLogActions.APPROVE_DATASET,
-        metadata: '',
-        ip: req.ip,
-        user_agent: req.headers['user-agent'],
-        entity_type: ActivityEntityType.DATASET,
-        entity_id: id,
-      });
-      await queryRunner.commitTransaction();
-      await this.publishService.publishDatasetAction({
-        action: 'APPROVED',
-        datasetId: id,
-        actorId: req.user.id,
-        timestamp: new Date().toISOString(),
-      });
-      return {
-        message: 'Data set approved successfully',
-      };
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      if (queryRunner) {
-        try {
-          await queryRunner.release();
-        } catch (releaseError) {
-          console.error('Error releasing queryRunner:', releaseError);
-        }
-      }
-    }
-  }
-
-  // @Put('/flag/:id')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(
-  //   Role.ADMIN,
-  //   Role.SUPER_ADMIN,
-  //   Role.PROJECT_MANAGER,
-  //   Role.REVIEWER,
-  //   Role.FACILITATOR,
-  // )
-  // async flag(
-  //   @Param('id', ParseUUIDPipe) id: string,
-  //   @Body() body: FlagReasonDto,
-  //   @Request() req,
-  // ) {
-  //   // create query runner
-  //   const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-  //   await queryRunner.connect();
-  //   await queryRunner.startTransaction();
-  //   try {
-  //     let d = await this.dataSetService.flagDataSet(
-  //       id,
-  //       body,
-  //       req.user.id,
-  //       queryRunner,
-  //     );
-  //     await this.activityLogService.create({
-  //       user_id: req.user.id,
-  //       action: ActivityLogActions.APPROVE_DATASET,
-  //       metadata: '',
-  //       ip: req.ip,
-  //       user_agent: req.headers['user-agent'],
-  //       entity_type: ActivityEntityType.DATASET,
-  //       entity_id: id,
-  //     });
-  //     await queryRunner.commitTransaction();
-  //     return d;
-  //   } catch (error) {
-  //     await queryRunner.rollbackTransaction();
-  //     throw error;
-  //   } finally {
-  //     if (queryRunner) {
-  //       try {
-  //         await queryRunner.release();
-  //       } catch (releaseError) {
-  //         console.error('Error releasing queryRunner:', releaseError);
-  //       }
-  //     }
-  //   }
-  // }
-
-  @Put('/reject/:id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.PROJECT_MANAGER, Role.REVIEWER)
-  async reject(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() rejectionReason: CreateRejectionReasonDto,
-    @Request() req,
-  ) {
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    const rejectionReasons: Partial<RejectionReason>[] =
-      rejectionReason.rejection_type_ids.map((r) => {
-        return {
-          data_set_id: id,
-          rejection_type_id: r,
-          comment: rejectionReason.comment,
-        };
-      });
-    try {
-      const reject = await this.dataSetService.rejectDataSet(
-        id,
-        rejectionReasons,
-        req.user.id,
-        queryRunner,
-        rejectionReason.flag,
-      );
-      await this.activityLogService.create({
-        user_id: req.user.id,
-        action: ActivityLogActions.REJECT_DATASET,
-        metadata: '',
-        ip: req.ip,
-        user_agent: req.headers['user-agent'],
-        entity_type: ActivityEntityType.DATASET,
-        entity_id: id,
-      });
-      await queryRunner.commitTransaction();
-      await this.publishService.publishDatasetAction({
-        action: 'REJECTED',
-        datasetId: id,
-        actorId: req.user.id,
-        timestamp: new Date().toISOString(),
-      });
-      return reject;
-    } catch (error) {
-      if (queryRunner.isTransactionActive) {
-        await queryRunner.rollbackTransaction();
-      }
-      throw error;
-    } finally {
-      if (queryRunner) {
-        try {
-          await queryRunner.release();
-        } catch (releaseError) {
-          console.error('Error releasing queryRunner:', releaseError);
-        }
-      }
-    }
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER, Role.QA)
+  @ApiProperty({
+    description: 'Get DataSet details with all review history and comments',
+  })
+  @ApiResponse({
+    type: DataSetDetailRto,
+  })
+  async findOneDetails(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
+    return this.dataSetService.getDetails(id);
   }
 
   @Put(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   async update(
     @Param('id') id: string,
     @Body() dataDto: UpdateDataSetDto,
@@ -514,7 +302,6 @@ export class DataSetController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CONTRIBUTOR)
-  @UsePipes(new ZodValidationPipe())
   async remove(@Param('id') id: string, @Request() req) {
     return this.dataSetService.remove(id);
   }

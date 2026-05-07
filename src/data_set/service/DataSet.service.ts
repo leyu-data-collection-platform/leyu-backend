@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Not, QueryRunner, Repository } from 'typeorm';
@@ -13,7 +12,6 @@ import { DataSet } from '../entities/DataSet.entity';
 import { MicroTaskService } from './MicroTask.service';
 import { TaskService } from 'src/project/service/Task.service';
 import { Task } from 'src/project/entities/Task.entity';
-import { RejectionReason } from '../entities/RejectionReason.entity';
 import { RejectionReasonService } from './RejectionReason.service';
 import { paginate, PaginatedResult } from 'src/utils/paginate.util';
 import { FileService } from 'src/common/service/File.service';
@@ -21,16 +19,14 @@ import { DataSetStatus } from 'src/utils/constants/DataSetStatus.constant';
 import { DataSetType, taskTypes } from 'src/utils/constants/Task.constant';
 import { TaskRequirement } from 'src/project/entities/TaskRequirement.entity';
 import { User } from 'src/auth/entities/User.entity';
-import { UserTaskService } from 'src/project/service/UserTask.service';
-import { UserTask } from 'src/project/entities/UserTask.entity';
 import { startOfDay, startOfYear, subDays } from 'date-fns';
 import { DataSetAnnotationService } from 'src/base_data/service/DataSetAnnotation.service';
-import { DataSetAnnotation } from 'src/base_data/entities/DataSetAnnotation.entity';
-
-import { ReviewerTaskService } from 'src/task_distribution/service/ReviewerTasks.service';
 import { DataSetSanitize, MicroTaskSanitize } from '../sanitize';
 import { TaskSubmissionsDto } from '../dto/DataSet.dto';
 import { CacheService } from 'src/cache/CacheService.service';
+import { TaskDataSetReviewerDistributionRto } from 'src/task_distribution/rto/TaskMonitoring.rto';
+import { DataSetDetailRto } from '../rto/DataSet.rto';
+import { GetQAMicroTasksDto } from 'src/task_distribution/dto/Task.dto';
 
 export interface GroupedContributorDataSets {
   contributor_id: string;
@@ -50,16 +46,12 @@ export class DataSetService {
     private readonly dataSetRepository: Repository<DataSet>,
     private readonly microTaskService: MicroTaskService,
     private readonly taskService: TaskService,
-    private readonly userTaskService: UserTaskService,
     private readonly paginateService: PaginationService<DataSet>,
     private readonly rejectionReasonService: RejectionReasonService,
-    // private readonly flagReasonService: FlagReasonService,
     private readonly fileService: FileService,
     private readonly dataSetAnnotationService: DataSetAnnotationService,
 
     private readonly cacheService: CacheService,
-    // private readonly publishService:PublisherService,
-    private reviewerTaskService: ReviewerTaskService,
   ) {
     this.paginateService = new PaginationService<DataSet>(
       this.dataSetRepository,
@@ -109,9 +101,9 @@ export class DataSetService {
     }[],
     contributor_id: string,
     queryRunner: QueryRunner,
-  ): Promise<void> {
+  ): Promise<DataSet[]> {
     if (dataSets.length === 0) {
-      return;
+      return [];
     }
     const entities = dataSets.map((item, index) => ({
       micro_task_id: item.micro_task_id,
@@ -123,7 +115,7 @@ export class DataSetService {
       type: DataSetType.TEXT,
       code: 'DAT-' + crypto.randomUUID().slice(0, 8),
     }));
-    await queryRunner.manager.save(DataSet, entities);
+    return await queryRunner.manager.save(DataSet, entities);
   }
   /**
    * Creates multiple audio data sets in the database.
@@ -141,7 +133,6 @@ export class DataSetService {
       dialect_id: string;
       language_id: string;
       is_test: boolean;
-      audio_duration: number;
     }[],
     contributor_id: string,
     queryRunner: QueryRunner,
@@ -205,28 +196,31 @@ export class DataSetService {
    * exceeded the maximum retry amount.
    */
   async validateSubmission(
-    contributorSubmittedDataSets: DataSet[],
-    contributorId: string,
+    contributorMicroTaskSubmittedDataSets: DataSet[],
     maxRetryPerTask: number,
   ): Promise<void> {
-    const un_rejected_prev_data_sets: DataSet[] =
-      contributorSubmittedDataSets.filter(
-        (d) =>
-          d.status != DataSetStatus.REJECTED &&
-          d.status != DataSetStatus.Flagged,
-      );
-    const rejected_data_sets: DataSet[] = contributorSubmittedDataSets.filter(
+    const unRejected = contributorMicroTaskSubmittedDataSets.filter(
+      (d) =>
+        d.status !== DataSetStatus.REJECTED &&
+        d.status !== DataSetStatus.Flagged,
+    );
+
+    const rejected = contributorMicroTaskSubmittedDataSets.filter(
       (d) =>
         d.status === DataSetStatus.REJECTED ||
         d.status === DataSetStatus.Flagged,
     );
-    if (un_rejected_prev_data_sets.length > 0) {
+    console.log(rejected);
+    console.log('Max Retry ', maxRetryPerTask);
+
+    if (unRejected.length > 0) {
       throw new BadRequestException(
         `You already have contributed to this micro task`,
       );
     }
-    if (rejected_data_sets.length >= maxRetryPerTask + 1) {
-      throw new BadRequestException(`Maximum retry amount reached !`);
+
+    if (rejected.length >= maxRetryPerTask + 1) {
+      throw new BadRequestException(`Maximum retry amount reached!`);
     }
   }
   /**
@@ -324,6 +318,37 @@ export class DataSetService {
     return dataSet;
   }
 
+  async getDetails(dataSetId: string): Promise<DataSetDetailRto> {
+    const dataSet = await this.dataSetRepository.findOne({
+      where: { id: dataSetId },
+      relations: {
+        microTask: true,
+        dataSetReviews: {
+          reviewer: { score: true },
+          rejectionReasons: { rejectionType: true },
+          annotations: true,
+        },
+      },
+    });
+
+    if (!dataSet) {
+      throw new NotFoundException('Data set not found');
+    }
+    const task = await this.taskService.findOne({
+      where: { id: dataSet.microTask.task_id },
+      relations: { taskRequirement: true },
+    });
+
+    if (dataSet.type == 'audio') {
+      dataSet.file_path = await this.fileService.getPreSignedUrl(
+        dataSet.file_path,
+      );
+    }
+    const expectedReviews = task?.taskRequirement.max_reviewer_per_dataset || 1;
+    const totalReviews = dataSet.dataSetReviews.length;
+    return DataSetDetailRto.from(dataSet, totalReviews, expectedReviews);
+  }
+
   /**
    * Updates a data set in the database.
    * If a query runner is provided, it will be used to update the data set.
@@ -346,41 +371,6 @@ export class DataSetService {
       const manager = this.dataSetRepository;
       await manager.update(id, dataSet);
       return await manager.findOne({ where: { id } });
-    }
-  }
-  /**
-   * Updates the queue status of a data set in the database.
-   * If the data set is found, it will also update the cache.
-   * @param id The id of the data set to update.
-   * @param status The new queue status of the data set, either 'pending', 'completed', or 'failed'.
-   * @param filePath The new file path of the data set.
-   * @returns A promise resolving to void when the update is successful.
-   */
-  async updateQueueStatus(
-    id: string,
-    status: 'pending' | 'completed' | 'failed',
-    filePath: string,
-  ): Promise<void> {
-    const manager = this.dataSetRepository;
-    await manager.update(id, { queue_status: status, file_path: filePath });
-    const d = await manager.findOne({
-      where: { id },
-      select: {
-        id: true,
-        contributor_id: true,
-        micro_task_id: true,
-        microTask: { id: true, task_id: true },
-      },
-      relations: { microTask: true },
-    });
-    if (d) {
-      await this.cacheService.updateDataSetFilPathAndQueueStatus(
-        d.contributor_id,
-        d.microTask.task_id,
-        d.id,
-        d.micro_task_id,
-        filePath,
-      );
     }
   }
 
@@ -413,237 +403,6 @@ export class DataSetService {
     }
     return codes;
   }
-
-  /**
-   * Rejects a data set and updates the reviewer's wallet and the contributor's user task status.
-   * @param id The id of the data set to reject.
-   * @param rejectionReason The reason for rejecting the data set.
-   * @param reviewer_id The id of the reviewer who is rejecting the data set.
-   * @param queryRunner The query runner to use when updating the database.
-   * @param is_flagged Whether the data set is flagged or not.
-   * @returns A promise resolving to the rejected data set if successful.
-   * @throws BadRequestException If the data set is already rejected.
-   * @throws NotFoundException If the data set is not found.
-   * @throws BadRequestException If the reviewer is not a member of the task.
-   */
-  async rejectDataSet(
-    id: string,
-    rejectionReason: Partial<RejectionReason>[],
-    reviewer_id: string,
-    queryRunner: QueryRunner,
-    is_flagged?: boolean,
-  ): Promise<DataSet | null> {
-    const manager = queryRunner.manager;
-    const dataSet = await this.findOne({
-      where: { id: id },
-      relations: {
-        microTask: { task: { payment: true } },
-        contributor: { userDeviceTokens: true },
-      },
-    });
-    if (!dataSet) {
-      throw new NotFoundException('Dataset not found');
-    }
-    const taskPayment = dataSet.microTask.task.payment;
-    if (dataSet.status !== DataSetStatus.PENDING) {
-      throw new BadRequestException('data set already rejected');
-    }
-
-    await manager.update(DataSet, dataSet.id, {
-      status: DataSetStatus.REJECTED,
-      is_flagged: is_flagged ? true : false,
-      reviewer_id: reviewer_id,
-    });
-    await this.rejectionReasonService.createBulk(rejectionReason, queryRunner);
-    // await this.reviewerTaskService.checkAndRemoveDataSetFromReviewer(
-    //   reviewer_id,
-    //   dataSet.microTask.task.id,
-    //   id,
-    //   queryRunner
-    // )
-
-    // if (!membership || membership.status!='Active') {
-    //   throw new BadRequestException('You are not a member of this task');
-    // }
-    // const contributorLastUsedDevice=dataSet.contributor.userDeviceTokens.length>0 && dataSet.contributor.userDeviceTokens[dataSet.contributor.userDeviceTokens.length-1];
-
-    await this.cacheService.updateDataSetStatus(
-      dataSet.contributor_id,
-      dataSet.microTask.task_id,
-      dataSet.micro_task_id,
-      'Rejected',
-    );
-    const updatedDataSet: DataSet | null = await manager.findOne(DataSet, {
-      where: { id },
-    });
-
-    // await this.notificationService.create({
-    //   user_id: dataSet.contributor_id,
-    //   title: 'Task Rejected',
-    //   message:'Your task with code '+dataSet.code +' on task '+dataSet.microTask.task.name+'has been rejected. Please try again.',
-    //   type:  'task-rejected'
-    // },)
-
-    // await this.userScoreService.updateScore(
-    //   dataSet.contributor_id,
-    //   UserScoreAction.REJECT,
-    //   queryRunner,
-    // );
-    return updatedDataSet;
-  }
-
-  /**
-   * Approves a data set.
-   *
-   * @param id - id of the data set.
-   * @param reviewer_id - id of the reviewer.
-   * @param queryRunner - query runner object.
-   * @param annotation - annotation of the data set.
-   * @returns nothing if the data set is approved successfully.
-   * @throws NotFoundException - if the data set is not found.
-   * @throws BadRequestException - if the data set is already approved or rejected, or if the annotation is not found.
-   */
-  async approveDataSet(
-    id: string,
-    reviewer_id: string,
-    queryRunner: QueryRunner,
-    annotation?: string,
-  ): Promise<void> {
-    const manager = queryRunner.manager;
-    let update: Partial<DataSet> = {
-      status: DataSetStatus.APPROVED,
-      reviewer_id: reviewer_id,
-    };
-    if (annotation) {
-      const dataSetAnnotation: DataSetAnnotation | null =
-        await this.dataSetAnnotationService.findOne({ name: annotation });
-      if (!dataSetAnnotation) {
-        throw new BadRequestException(
-          `Annotation with name  ${annotation} doesn't exist`,
-        );
-      }
-      update = { ...update, annotation };
-    }
-    const dataSet: DataSet | null = await this.findOne(
-      {
-        where: { id: id },
-        relations: {
-          microTask: { task: { payment: true } },
-          contributor: { userDeviceTokens: true },
-        },
-      },
-      queryRunner,
-    );
-    if (!dataSet) {
-      throw new NotFoundException('Data set not found');
-    }
-    if (dataSet.status == DataSetStatus.APPROVED) {
-      throw new BadRequestException('Data set already approved');
-    }
-    // await this.reviewerTaskService.checkAndRemoveDataSetFromReviewer(
-    //   reviewer_id,
-    //   dataSet.microTask.task.id,
-    //   id,
-    //   queryRunner
-    // )
-    // const taskPayment = dataSet?.microTask.task.payment;
-    // const memberContributor: UserTask | null = await this.userTaskService.findOne({
-    //   where: {
-    //     user_id: dataSet.contributor_id,
-    //     task_id: dataSet.microTask.task.id,
-    //   },
-    // });
-
-    // let create = {
-    //   task_id: dataSet.microTask.task.id,
-    //   user_id: dataSet.contributor_id,
-    // };
-    // if (!memberContributor && !dataSet.microTask.task.require_contributor_test) {
-    //   await this.taskService.activateContributorToTask(create, queryRunner);
-    //   await this.cacheService.clearContributorTaskCache(dataSet.contributor_id);
-    // } else if (
-    //   dataSet.microTask.task.require_contributor_test &&
-    //   dataSet.microTask.is_test
-    // ) {
-    //   // check if all the test micro tasks are approved
-    //   const contributorTestMicroTasks: MicroTask[] =
-    //     await this.microTaskService.findAllTestMicroTasks({
-    //       where: {
-    //         task_id: dataSet.microTask.task.id,
-    //         is_test: true,
-    //         dataSets: {
-    //           contributor_id: dataSet.contributor_id
-    //         }
-    //         },
-    //       relations:{
-    //         dataSets:true
-    //       }
-    //     });
-    //   if (contributorTestMicroTasks.length == 1) {
-    //     await this.taskService.activateContributorToTask(create, queryRunner);
-    //   } else {
-    //     let has_pending = false;
-    //     let has_rejected = false;
-    //     for (const task of contributorTestMicroTasks) {
-    //       const statusOfMicroTask=checkIfMicroTasIskRejectedAndTotalAttempts(task, 3);
-    //       console.log("STEP 11     ============= ");
-    //       if (task.id==dataSet.micro_task_id) {
-    //         continue;
-    //       }
-    //       if (statusOfMicroTask.acceptanceStatus==='PENDING' || statusOfMicroTask.acceptanceStatus==='NOT_STARTED') {
-    //         has_pending=true;
-    //         break;
-    //       }
-    //       if (statusOfMicroTask.acceptanceStatus==='REJECTED') {
-    //         has_rejected=true;
-    //         break;
-    //       }
-    //       // break;
-    //     }
-    //     if (!has_rejected && !has_pending) {
-    //       await this.taskService.activateContributorToTask(create, queryRunner);
-    //       await this.cacheService.clearContributorTaskCache(dataSet.contributor_id,dataSet.microTask.task_id);
-    //     }
-    //   }
-    // }
-    await this.cacheService.updateDataSetStatus(
-      dataSet.contributor_id,
-      dataSet.microTask.task_id,
-      dataSet.micro_task_id,
-      'Approved',
-    );
-    await manager.update(DataSet, id, update);
-
-    // fund  Contributor wallet
-    // const score= await this.scoreService.get();
-    // const scoreValueInBIRR=score.value_in_birr;
-    // await this.walletService.addFunds(
-    //   dataSet.contributor_id,
-    //   taskPayment.contributor_credit_per_microtask * scoreValueInBIRR,
-    //   { data_set_id: id, code: dataSet.code },
-    //   queryRunner,
-    // );
-    // // fund Reviewer wallet
-    // await this.walletService.addFunds(
-    //   reviewer_id,
-    //   taskPayment.reviewer_credit_per_microtask * scoreValueInBIRR,
-    //   { data_set_id: id, code: dataSet.code },
-    //   queryRunner,
-    // );
-    // await this.notificationService.create({
-    //   user_id: dataSet.contributor_id,
-    //   title: 'Task Approved',
-    //   message:'Your task with code '+dataSet.code+' on task '+dataSet.microTask.task.name+' has been approved.',
-    //   type:  'task-approved'
-    // })
-    // await this.userScoreService.updateScore(
-    //   dataSet.contributor_id,
-    //   UserScoreAction.ACCEPT,
-    //   queryRunner,
-    // );
-
-    return;
-  }
   /**
    * Checks if a microtask is open for a contributor to submit a dataset.
    * It checks if the number of submitted datasets for the microtask is less than the max allowed.
@@ -669,118 +428,6 @@ export class DataSetService {
       return false;
     }
     return true;
-  }
-  async findReviewerDataSets(
-    user_id: string,
-    task_id: string,
-    paginationDto: PaginationDto,
-    status?: string,
-  ): Promise<PaginatedResult<DataSet>> {
-    const userTask: UserTask | null = await this.userTaskService.findOne({
-      where: { user_id: user_id, task_id: task_id },
-      relations: { user: true, task: { taskType: true } },
-    });
-    if (!userTask) {
-      throw new UnauthorizedException(`User is not assigned to the task`);
-    }
-    const reviewerId = user_id;
-    const task = userTask.task;
-    // const
-    // get datasets from redis if exists
-    const dataSets: string[] = await this.reviewerTaskService.getReviewerTasks(
-      reviewerId,
-      task_id,
-    );
-    const queryBuilder = this.dataSetRepository.createQueryBuilder('dataSet');
-    if (status === DataSetStatus.PENDING) {
-      if (dataSets.length > 0) {
-        queryBuilder
-          .andWhere('dataSet.id IN (:...ids)', { ids: dataSets })
-          .andWhere('dataSet.status = :status', {
-            status: DataSetStatus.PENDING,
-          })
-          .leftJoinAndSelect('dataSet.microTask', 'microTask');
-      } else {
-        return {
-          result: [],
-          total: 0,
-          page: 1,
-          limit: 10,
-          totalPages: 1,
-        };
-      }
-    } else if (
-      status === DataSetStatus.APPROVED ||
-      status === DataSetStatus.REJECTED
-    ) {
-      queryBuilder
-        .leftJoinAndSelect('dataSet.microTask', 'microTask')
-        .where('microTask.task_id = :taskId', { taskId: task.id })
-        .andWhere('dataSet.status = :status', { status })
-        .andWhere('dataSet.reviewer_id = :reviewerId', { reviewerId });
-    } else if (status === DataSetStatus.Flagged) {
-      queryBuilder
-        .leftJoinAndSelect('dataSet.microTask', 'microTask')
-        .where('microTask.task_id = :taskId', { taskId: task.id })
-        .andWhere('dataSet.is_flagged = :is_flagged', { is_flagged: true })
-        .andWhere('dataSet.reviewer_id = :reviewerId', { reviewerId });
-    } else {
-      const datasets = await this.reviewerTaskService.getReviewerTasks(
-        reviewerId,
-        task_id,
-      );
-      queryBuilder
-        .leftJoinAndSelect('dataSet.microTask', 'microTask')
-        .where('microTask.task_id = :taskId', { taskId: task.id })
-        .andWhere('dataSet.status IN (:...statuses)', {
-          statuses: [
-            DataSetStatus.APPROVED,
-            DataSetStatus.REJECTED,
-            DataSetStatus.Flagged,
-          ],
-        })
-        .andWhere('dataSet.reviewer_id = :reviewerId', { reviewerId });
-      if (datasets.length > 0) {
-        queryBuilder.orWhere('dataSet.id IN (:...ids)', { ids: datasets });
-      }
-      // .orWhere('dataSet.id IN (:...ids)', { ids: datasets });
-    }
-
-    const page = paginationDto.page || 1;
-    const limit = paginationDto.limit || 10;
-
-    queryBuilder
-      .skip((page - 1) * limit)
-      .take(limit)
-      .orderBy('dataSet.created_date', 'DESC');
-    // if (task.taskRequirement.is_dialect_specific) {
-    //   queryBuilder.andWhere('dataSet.dialect_id = :dialectId', { dialectId });
-    // }
-
-    const [result, count] = await queryBuilder.getManyAndCount();
-    if (
-      [taskTypes.TEXT_TO_AUDIO].indexOf(task?.taskType?.task_type || '') !== -1
-    ) {
-      for (const dataset of result) {
-        await this.fileService.setPreSignedDatasets(dataset);
-      }
-    }
-    if (
-      [taskTypes.AUDIO_TO_TEXT].indexOf(task?.taskType?.task_type || '') !== -1
-    ) {
-      for (const dataset of result) {
-        dataset.microTask.file_path = await this.fileService.getPreSignedUrl(
-          dataset.microTask.file_path,
-        );
-      }
-    }
-    return {
-      result,
-      page: paginationDto.page || 1,
-      limit: paginationDto.limit || 10,
-      total: count,
-      totalPages: Math.ceil(count / (paginationDto.limit || 10)),
-    };
   }
   /**
    * Get the count of datasets per day/month/year
@@ -1004,24 +651,6 @@ export class DataSetService {
     if (!task) {
       throw new NotFoundException('Task not found');
     }
-    // const queryBuilder =  this.dataSetRepository
-    //   .createQueryBuilder('data_set')
-    //   .leftJoinAndSelect('data_set.microTask', 'microTask')
-    //   .leftJoinAndSelect('microTask.task', 'task') // Join the task from microTask
-    //   .leftJoinAndSelect('data_set.contributor', 'contributor')
-    //   .leftJoinAndSelect('data_set.rejectionReasons', 'rejectionReasons')
-    //   .leftJoinAndSelect('rejectionReasons.rejectionType', 'rejectionType')
-    //   .leftJoinAndSelect('data_set.flagReason', 'flagReason')
-    //   .leftJoinAndSelect('flagReason.flagType', 'flagType')
-    //   .where('task.id = :task_id', { task_id })
-
-    //   if(taskSubmissionDto.contributor_id){
-    //     queryBuilder.andWhere('data_set.contributor_id = :contributor_id', { contributor_id: taskSubmissionDto.contributor_id });
-    //   }
-
-    //   if(taskSubmissionDto.status){
-    //     queryBuilder.andWhere('data_set.status = :status', { status: taskSubmissionDto.status });
-    //   }
     const query: FindOptionsWhere<DataSet> = {
       microTask: {
         task: {
@@ -1048,33 +677,27 @@ export class DataSetService {
           flagType: true,
         },
         microTask: true,
-        reviewer: true,
+        // reviewer: true,
       },
       skip: offset,
       take: limit,
     });
-    // const [dataSets, totalCount] = await queryBuilder
-    //   .orderBy('data_set.created_date', 'DESC')
-    //   .offset(offset)
-    //   .limit(limit)
-    //   .getManyAndCount();
-    // const totalCount = await this.dataSetRepository
-    //   .createQueryBuilder('data_set')
-    //   .leftJoin('data_set.microTask', 'microTask')
-    //   .leftJoin('microTask.task', 'task')
-    //   .where('task.id = :task_id', { task_id })
-    //   .getCount();  // Now safe - no SELECT * from joins that multiply rows
-    console.log(dataSets);
-    console.log(totalCount);
     let signedDataSets = dataSets;
     if (
-      [taskTypes.TEXT_TO_AUDIO].indexOf(task?.taskType?.task_type || '') !== -1
+      [taskTypes.TEXT_TO_AUDIO, taskTypes.IMAGE_TO_AUDIO].indexOf(
+        task?.taskType?.task_type || '',
+      ) !== -1
     ) {
       signedDataSets = await this.fileService.getPreSignedDatasets(dataSets);
-    } else if (
-      [taskTypes.AUDIO_TO_TEXT].indexOf(task?.taskType?.task_type || '') !== -1
+    }
+    if (
+      [
+        taskTypes.AUDIO_TO_TEXT,
+        taskTypes.IMAGE_TO_AUDIO,
+        taskTypes.IMAGE_TO_TEXT,
+      ].indexOf(task?.taskType?.task_type || '') !== -1
     ) {
-      for (const dataset of dataSets) {
+      for (const dataset of signedDataSets) {
         await this.fileService.setPreSignedMicroTask(dataset.microTask);
       }
     }
@@ -1120,16 +743,26 @@ export class DataSetService {
           flagType: true,
         },
         microTask: true,
-        reviewer: true,
+        // reviewer: true,
+
+        // TO DO
       },
       skip: offset,
       take: limit,
     });
-    if ([taskTypes.TEXT_TO_AUDIO].includes(task.taskType.task_type)) {
+    if (
+      [taskTypes.TEXT_TO_AUDIO, taskTypes.IMAGE_TO_AUDIO].includes(
+        task.taskType.task_type,
+      )
+    ) {
       for (const dataSet of dataSets) {
         await this.fileService.setPreSignedDatasets(dataSet);
       }
-    } else if ([taskTypes.AUDIO_TO_TEXT].includes(task.taskType.task_type)) {
+    } else if (
+      [taskTypes.AUDIO_TO_TEXT, taskTypes.IMAGE_TO_AUDIO].includes(
+        task.taskType.task_type,
+      )
+    ) {
       for (const dataSet of dataSets) {
         await this.fileService.setPreSignedMicroTask(dataSet.microTask);
       }
@@ -1240,5 +873,148 @@ export class DataSetService {
       allowed_retry: microTask.task.taskRequirement.max_retry_per_task,
       can_retry: hasApprovedOrPendingDatasets ? false : hasReachedMaxRetry,
     };
+  }
+  async getTaskDataSetReviewStats(
+    taskId: string,
+    maxReviewerPerDataSet: number,
+  ): Promise<TaskDataSetReviewerDistributionRto> {
+    const now = new Date();
+
+    const raw = await this.dataSetRepository
+      .createQueryBuilder('ds')
+
+      // Ensure dataset belongs to the task
+      .innerJoin('ds.microTask', 'mt', 'mt.task_id = :taskId', { taskId })
+
+      // Count only this task's non-expired reviews
+      .leftJoin(
+        'ds.dataSetReviews',
+        'dsr',
+        `
+      dsr.task_id = :taskId
+      AND dsr.expires_at > :now
+      `,
+        { taskId, now },
+      )
+
+      .select('ds.id', 'dataSetId')
+      .addSelect('ds.status', 'status')
+      .addSelect('COUNT(dsr.id)', 'reviewCount')
+      .groupBy('ds.id')
+      .addGroupBy('ds.status')
+      .getRawMany();
+
+    let totalFullyAssignedDataSets = 0;
+    let totalPartiallyAssignedDataSets = 0;
+    let totalReviewedDataSets = 0;
+    let totalUnAssignedDataSets = 0;
+
+    for (const row of raw) {
+      const reviewCount = Number(row.reviewCount);
+      const status = row.status;
+
+      // 1️⃣ Reviewed datasets (status != Pending)
+      if (status !== 'Pending') {
+        totalReviewedDataSets++;
+        continue;
+      }
+
+      // 2️⃣ Pending datasets
+      if (reviewCount === 0) {
+        totalUnAssignedDataSets++;
+      } else if (reviewCount >= maxReviewerPerDataSet) {
+        totalFullyAssignedDataSets++;
+      } else {
+        totalPartiallyAssignedDataSets++;
+      }
+    }
+
+    return {
+      totalFullyAssignedDataSets,
+      totalPartiallyAssignedDataSets,
+      totalReviewedDataSets,
+      totalUnAssignedDataSets,
+    };
+  }
+  async getReviewDataSetsForQA(
+    taskId: string,
+    payload: GetQAMicroTasksDto,
+  ): Promise<PaginatedResult<DataSetDetailRto>> {
+    const page = payload.page || 1;
+    const limit = payload.limit || 10;
+    const skip = (page - 1) * limit;
+    const dataSetReviewQuery =
+      this.dataSetRepository.createQueryBuilder('dataSet');
+    dataSetReviewQuery.leftJoinAndSelect('dataSet.microTask', 'microTask');
+    dataSetReviewQuery.leftJoinAndSelect(
+      'dataSet.dataSetReviews',
+      'dataSetReviews',
+    );
+    dataSetReviewQuery.leftJoinAndSelect('dataSetReviews.reviewer', 'reviewer');
+    dataSetReviewQuery.leftJoinAndSelect('reviewer.score', 'score');
+    dataSetReviewQuery.leftJoinAndSelect(
+      'dataSetReviews.annotations',
+      'annotations',
+    );
+    dataSetReviewQuery.leftJoinAndSelect(
+      'dataSetReviews.rejectionReasons',
+      'rejectionReasons',
+    );
+    dataSetReviewQuery.leftJoinAndSelect(
+      'rejectionReasons.rejectionType',
+      'rejectionType',
+    );
+    dataSetReviewQuery.where('dataSetReviews.task_id = :taskId', {
+      taskId: taskId,
+    });
+    if (
+      payload.reviewerIds &&
+      Array.isArray(payload.reviewerIds) &&
+      payload.reviewerIds.length > 0
+    ) {
+      dataSetReviewQuery.andWhere(
+        'dataSetReviews.reviewer_id IN (:...reviewerIds)',
+        { reviewerIds: payload.reviewerIds },
+      );
+    } else if (payload.reviewerIds) {
+      dataSetReviewQuery.andWhere('dataSetReviews.reviewer_id = :reviewerId', {
+        reviewerId: payload.reviewerIds,
+      });
+    }
+
+    if (payload.status) {
+      if (payload.status == 'Flagged') {
+        dataSetReviewQuery.andWhere('dataSet.is_flagged = :is_flagged', {
+          is_flagged: true,
+        });
+      } else {
+        dataSetReviewQuery.andWhere(
+          'dataSet.qa_review_status = :dataSetStatus',
+          { dataSetStatus: payload.status },
+        );
+      }
+    }
+    dataSetReviewQuery.skip(skip).take(limit);
+    const [dataSetReviews, total] = await dataSetReviewQuery.getManyAndCount();
+    if (dataSetReviews.length > 0) {
+      if (dataSetReviews[0].type == 'audio') {
+        dataSetReviews.forEach(async (dataSet) => {
+          dataSet.file_path = await this.fileService.getPreSignedUrl(
+            dataSet.file_path,
+          );
+        });
+      }
+      if (['audio', 'image'].includes(dataSetReviews[0].microTask.type)) {
+        dataSetReviews.forEach(async (dataSet) => {
+          dataSet.microTask.file_path = await this.fileService.getPreSignedUrl(
+            dataSet.microTask.file_path,
+          );
+        });
+      }
+    }
+    const formattedDataSets = dataSetReviews.map((dataSet) =>
+      DataSetDetailRto.from(dataSet, 0, 0),
+    );
+    return paginate(formattedDataSets, page, limit, total);
   }
 }

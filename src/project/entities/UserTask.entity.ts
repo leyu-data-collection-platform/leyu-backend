@@ -19,7 +19,7 @@ export class UserTask {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({})
+  @Column({ type: 'uuid' })
   user_id: string;
 
   @Column({ default: false })
@@ -29,15 +29,15 @@ export class UserTask {
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
-  @Column({})
+  @Column({ type: 'uuid' })
   task_id: string;
 
   @Column({
     type: 'enum',
     nullable: false,
-    enum: ['Contributor', 'Facilitator', 'Reviewer'],
+    enum: ['Contributor', 'Facilitator', 'Reviewer', 'QualityAssurance'],
   })
-  role: 'Contributor' | 'Facilitator' | 'Reviewer';
+  role: 'Contributor' | 'Facilitator' | 'Reviewer' | 'QualityAssurance';
 
   @Column({
     type: 'enum',

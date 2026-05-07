@@ -51,6 +51,10 @@ export class UserSanitize {
   is_active: boolean;
   @ApiProperty()
   email: string;
+
+  @ApiProperty({ enum: ['pending', 'under_review', 'approved', 'rejected'] })
+  kyc_verification_status: string;
+
   @ApiProperty()
   created_date: Date;
 
@@ -86,7 +90,27 @@ export class UserSanitize {
 
   @ApiProperty()
   zone_id?: string;
-  static from(user: User): UserSanitize {
+
+  @ApiProperty()
+  score?: number;
+
+  @ApiProperty()
+  referred?: boolean;
+  @ApiProperty()
+  totalDataSetSubmitted?: number;
+  @ApiProperty()
+  totalApprovedDataSetSubmitted?: number;
+  @ApiProperty()
+  preferred_language?: string;
+  @ApiProperty()
+  referral_code?: string;
+  static from(
+    user: User,
+    userScore?: number,
+    totalDataSetSubmitted?: number,
+    totalApprovedDataSetSubmitted?: number,
+    referred?: boolean,
+  ): UserSanitize {
     return {
       id: user.id,
       first_name: user.first_name,
@@ -108,6 +132,13 @@ export class UserSanitize {
       zone_id: user.zone_id,
       birth_date: user.birth_date,
       gender: user.gender,
+      score: userScore ? userScore : user.score?.score,
+      kyc_verification_status: user.kyc_verification_status,
+      totalDataSetSubmitted: totalDataSetSubmitted,
+      totalApprovedDataSetSubmitted: totalApprovedDataSetSubmitted,
+      preferred_language: user.preferred_language,
+      referred: referred,
+      referral_code: user.referral_code,
     };
   }
 }

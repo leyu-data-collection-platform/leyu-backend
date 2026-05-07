@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   NotFoundException,
@@ -23,7 +22,6 @@ import {
 } from '@nestjs/swagger';
 import { UpdateRejectionTypeDto } from '../dto/RejectionType.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { DataSetAnnotationService } from '../service/DataSetAnnotation.service';
@@ -33,6 +31,9 @@ import {
   DataSetAnnotationSanitized,
 } from '../sanitize';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { User } from 'src/auth/entities/User.entity';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role as RoleConstant } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/annotation')
 @ApiTags('DataSet Annotation')
 @ApiBearerAuth()
@@ -43,7 +44,7 @@ export class DataSetAnnotationController {
   ) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
+  @Roles(RoleConstant.SUPER_ADMIN)
   async create(@Body() dataAnnotationDto: CreateAnnotationDto, @Request() req) {
     return this.dataSetAnnotationService.create({
       ...dataAnnotationDto,
@@ -51,7 +52,6 @@ export class DataSetAnnotationController {
     });
   }
   @Get('paginate')
-  // @UsePipes(PaginationDto) // Correctly applying ZodValidationPipe
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiOperation({ summary: 'Paginate Countries' })
@@ -92,13 +92,16 @@ export class DataSetAnnotationController {
   }
 
   @Get()
-  @UsePipes(new ZodValidationPipe())
-  async findAll(@Query() query: UpdateRejectionTypeDto) {
-    return this.dataSetAnnotationService.findAll(query);
+  async findAll(@Query() query: UpdateRejectionTypeDto, @Request() req) {
+    const user = req.user as User;
+    const dataSetAnnotations =
+      await this.dataSetAnnotationService.findAll(query);
+    return dataSetAnnotations.map((item) =>
+      DataSetAnnotationSanitized.from(item, user.preferred_language),
+    );
   }
 
   @Get(':id')
-  @UsePipes(new ZodValidationPipe())
   async findOne(@Param('id') id: string) {
     const data = await this.dataSetAnnotationService.findOne({ id });
     if (!data) {
@@ -108,7 +111,7 @@ export class DataSetAnnotationController {
   }
 
   @Put(':id')
-  @UsePipes(new ZodValidationPipe())
+  @Roles(RoleConstant.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() rejectionTypeData: UpdateRejectionTypeDto,
@@ -119,9 +122,28 @@ export class DataSetAnnotationController {
       updated_by: request.user.id,
     });
   }
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.dataSetAnnotationService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.dataSetAnnotationService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
 
   @Delete(':id')
-  @UsePipes(new ZodValidationPipe())
   async delete(@Param('id') id: string) {
     return this.dataSetAnnotationService.remove(id);
   }

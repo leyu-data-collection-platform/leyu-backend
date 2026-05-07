@@ -5,6 +5,7 @@ import { DataSetService } from 'src/data_set/service/DataSet.service';
 import { FileService } from 'src/common/service/File.service';
 import { promises as fs } from 'fs';
 import { Job } from 'bullmq';
+import { CacheService } from './CacheService.service';
 const unlinkAsync = promisify(unlink);
 
 @Processor('file-upload', {
@@ -14,7 +15,7 @@ export class FileUploadProcessor extends WorkerHost {
   constructor(
     private readonly fileService: FileService,
     private readonly dataSetService: DataSetService,
-    
+    private readonly cacheService: CacheService,
   ) {
     super();
   }
@@ -41,16 +42,10 @@ export class FileUploadProcessor extends WorkerHost {
     }>,
     token?: string,
   ): Promise<void> {
-    const data = job.data as {
-      path: string;
-      filename: string;
-      mimetype: string;
-      dataSetId: string;
-    };
+    const data = job.data;
     try {
       await fs.access(data.path);
       const stream = createReadStream(data.path);
-      console.log('MINIO UPLOADING', data);
       const folder = 'audios/';
       const result = await this.fileService.uploadAudioFiles(
         data.filename,
@@ -58,19 +53,50 @@ export class FileUploadProcessor extends WorkerHost {
         data.mimetype,
       );
       const filePath = folder + data.filename;
-      await this.dataSetService.updateQueueStatus(
-        data.dataSetId,
-        'completed',
-        filePath,
-      );
-      console.log('MINIO UPLOADING Done');
+      await this.updateQueueStatus(data.dataSetId, 'completed', filePath);
       await unlinkAsync(data.path);
     } catch (e) {
       await this.dataSetService.update(data.dataSetId, {
         queue_status: 'failed',
       });
-      console.log('MINIO UPLOADING Error');
       console.error(e);
+    }
+  }
+  /**
+   * Updates the queue status of a data set in the database.
+   * If the data set is found, it will also update the cache.
+   * @param id The id of the data set to update.
+   * @param status The new queue status of the data set, either 'pending', 'completed', or 'failed'.
+   * @param filePath The new file path of the data set.
+   * @returns A promise resolving to void when the update is successful.
+   */
+  async updateQueueStatus(
+    id: string,
+    status: 'pending' | 'completed' | 'failed',
+    filePath: string,
+  ): Promise<void> {
+    await this.dataSetService.update(id, {
+      queue_status: status,
+      file_path: filePath,
+    });
+    const d = await this.dataSetService.findOne({
+      where: { id },
+      select: {
+        id: true,
+        contributor_id: true,
+        micro_task_id: true,
+        microTask: { id: true, task_id: true },
+      },
+      relations: { microTask: true },
+    });
+    if (d) {
+      await this.cacheService.updateDataSetFilPathAndQueueStatus(
+        d.contributor_id,
+        d.microTask.task_id,
+        d.id,
+        d.micro_task_id,
+        filePath,
+      );
     }
   }
 }

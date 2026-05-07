@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   NotFoundException,
@@ -26,12 +25,14 @@ import {
   UpdateRejectionTypeDto,
 } from '../dto/RejectionType.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { AnnotationTypeService } from '../service/AnnotationType.service';
 import { AnnotationTypeSanitized } from '../sanitize';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { User } from 'src/auth/entities/User.entity';
+import { Role } from 'src/auth/decorators/roles.enum';
+import { Roles } from 'src/auth/decorators/roles.decorator';
 @Controller('/setting/annotation-type')
 @ApiTags('DataSet Annotation Type')
 @ApiBearerAuth()
@@ -40,7 +41,8 @@ export class AnnotationTypeController {
   constructor(private readonly annotationTypeService: AnnotationTypeService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
+  @ApiBearerAuth()
+  @Roles(Role.SUPER_ADMIN)
   async create(
     @Body() dataAnnotationDto: CreateRejectionTypeDto,
     @Request() req,
@@ -51,7 +53,6 @@ export class AnnotationTypeController {
     });
   }
   @Get('paginate')
-  // @UsePipes(PaginationDto) // Correctly applying ZodValidationPipe
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiOperation({ summary: 'Paginate Countries' })
@@ -75,22 +76,21 @@ export class AnnotationTypeController {
   async findPaginate(
     @Query() paginationDto: PaginationDto,
   ): Promise<PaginatedResult<AnnotationTypeSanitized>> {
-    const data = await this.annotationTypeService.findPaginate(paginationDto);
-    return {
-      ...data,
-      result: data.result.map((item) => AnnotationTypeSanitized.from(item)),
-    };
+    return this.annotationTypeService.findPaginate(paginationDto);
   }
 
   @Get()
-  @UsePipes(new ZodValidationPipe())
-  async findAll(@Query() query: UpdateRejectionTypeDto) {
-    const data = await this.annotationTypeService.findAll(query);
-    return data.map((item) => AnnotationTypeSanitized.from(item));
+  @ApiBearerAuth()
+  async findAll(@Request() req) {
+    const user = req.user as User;
+    const data = await this.annotationTypeService.findAll({});
+    return data.map((item) =>
+      AnnotationTypeSanitized.from(item, user.preferred_language),
+    );
   }
 
   @Get(':id')
-  @UsePipes(new ZodValidationPipe())
+  @ApiBearerAuth()
   async findOne(@Param('id') id: string) {
     const data = await this.annotationTypeService.findOne({ id });
     if (!data) {
@@ -100,7 +100,7 @@ export class AnnotationTypeController {
   }
 
   @Put(':id')
-  @UsePipes(new ZodValidationPipe())
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() rejectionTypeData: UpdateRejectionTypeDto,
@@ -111,9 +111,24 @@ export class AnnotationTypeController {
       updated_by: request.user.id,
     });
   }
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.annotationTypeService.addAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.annotationTypeService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
 
   @Delete(':id')
-  @UsePipes(new ZodValidationPipe())
   async delete(@Param('id') id: string) {
     return this.annotationTypeService.remove(id);
   }

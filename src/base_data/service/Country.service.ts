@@ -103,6 +103,68 @@ export class CountryService {
       return await manager.findOne({ where: { id } });
     }
   }
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Country> {
+    const annotationType = await this.countryRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [
+        {
+          key: languageKey,
+          name: alternative_name,
+        },
+      ];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      throw new BadRequestException('Language already exists');
+    }
+    annotationType.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.countryRepository.save(annotationType);
+  }
+
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Country> {
+    const annotationType = await this.countryRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.countryRepository.save(annotationType);
+  }
 
   async delete(id: any, queryRunner?: QueryRunner): Promise<boolean> {
     const manager = this.countryRepository;

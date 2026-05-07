@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryRunner, Repository } from 'typeorm';
+import { FindOptionsWhere, Not, QueryRunner, Repository } from 'typeorm';
 import { ContributorMicroTasks } from '../enitities/ContributorMicroTasks.entity';
 import { PaginationService } from 'src/common/service/pagination.service';
 import { QueryOptions } from 'src/utils/queryOption.util';
@@ -19,11 +19,15 @@ export class ContributorMicroTaskService {
     private readonly userService: UserService,
   ) {}
 
-  async findAll(
+  async findAllUnExpiredAssignments(
     queryOption: QueryOptions<ContributorMicroTasks>,
   ): Promise<ContributorMicroTasks[]> {
     return this.contributorMicroTaskRepository.find({
-      where: queryOption.where,
+      // STATUS UNEQUAL TO EXPIRED
+      where: {
+        ...queryOption.where,
+        status: Not(ContributorMicroTasksConstantStatus.EXPIRED),
+      },
       relations: queryOption.relations || [],
     });
   }
@@ -38,7 +42,10 @@ export class ContributorMicroTaskService {
   ): Promise<ContributorMicroTasks[]> {
     const contributorMicroTasks: ContributorMicroTasks[] =
       await this.contributorMicroTaskRepository.find({
-        where: { task_id, status: ContributorMicroTasksConstantStatus.NEW },
+        where: {
+          task_id,
+          status: Not(ContributorMicroTasksConstantStatus.EXPIRED),
+        },
       });
     return contributorMicroTasks.filter(
       (contributorTask) =>
@@ -49,7 +56,12 @@ export class ContributorMicroTaskService {
   async findOne(
     query: QueryOptions<ContributorMicroTasks>,
   ): Promise<ContributorMicroTasks | null> {
-    return this.contributorMicroTaskRepository.findOne({ where: query.where });
+    return this.contributorMicroTaskRepository.findOne({
+      where: {
+        ...query.where,
+        status: Not(ContributorMicroTasksConstantStatus.EXPIRED),
+      },
+    });
   }
 
   async create(
@@ -122,16 +134,22 @@ export class ContributorMicroTaskService {
     }
   }
 
-  async removeMany(
+  async expireAll(
     deleteOption: { contributor_id: string; task_id: string }[],
     queryRunner: QueryRunner,
   ): Promise<void> {
     const manager = queryRunner.manager;
     for (const option of deleteOption) {
-      await manager.delete(ContributorMicroTasks, {
-        contributor_id: option.contributor_id,
-        task_id: option.task_id,
-      });
+      await manager.update(
+        ContributorMicroTasks,
+        {
+          contributor_id: option.contributor_id,
+          task_id: option.task_id,
+        },
+        {
+          status: ContributorMicroTasksConstantStatus.EXPIRED,
+        },
+      );
     }
   }
   /**
@@ -145,7 +163,10 @@ export class ContributorMicroTaskService {
   ): Promise<any> {
     const contributorMicroTaskStatistics =
       await this.contributorMicroTaskRepository.find({
-        where: { task_id },
+        where: {
+          task_id,
+          status: Not(ContributorMicroTasksConstantStatus.EXPIRED),
+        },
       });
     const contributor_ids = contributorMicroTaskStatistics.map(
       (cmt) => cmt.contributor_id,
@@ -165,7 +186,10 @@ export class ContributorMicroTaskService {
   ): Promise<any> {
     const contributorMicroTaskStatistics =
       await this.contributorMicroTaskRepository.find({
-        where: { task_id },
+        where: {
+          task_id,
+          status: Not(ContributorMicroTasksConstantStatus.EXPIRED),
+        },
       });
     const contributor_ids = contributorMicroTaskStatistics.map(
       (cmt) => cmt.contributor_id,
@@ -270,9 +294,22 @@ export class ContributorMicroTaskService {
           'contributor.id = cmt.contributor_id',
         )
         .where('cmt.task_id = :task_id', { task_id })
+        .andWhere('cmt.status != :status', {
+          status: ContributorMicroTasksConstantStatus.EXPIRED,
+        })
         .skip(offset)
         .take(limit)
         .getManyAndCount();
     return paginate(contributorMicroTask, count, page, limit);
+  }
+  async findAll(
+    query: FindOptionsWhere<ContributorMicroTasks>,
+  ): Promise<ContributorMicroTasks[]> {
+    return this.contributorMicroTaskRepository.find({
+      where: {
+        ...query,
+        status: Not(ContributorMicroTasksConstantStatus.EXPIRED),
+      },
+    });
   }
 }

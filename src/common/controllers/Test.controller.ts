@@ -38,7 +38,7 @@ export class CreateNotificationDto {
 export class DatasetActionEvent {
   @ApiProperty()
   @IsString()
-  datasetId: string;
+  datasetReviewId: string;
   @ApiProperty()
   @IsString()
   action: 'APPROVED' | 'REJECTED' | 'INVITED';

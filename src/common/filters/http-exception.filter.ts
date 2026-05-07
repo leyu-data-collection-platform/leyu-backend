@@ -26,7 +26,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getResponse()['message'] || exception.message
         : 'Internal server error';
 
-    //  transforming zod errors
     if (message instanceof Array) {
     }
     response.status(status).json({

@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   UseInterceptors,
@@ -34,13 +33,16 @@ import {
   UpdateMicroTaskDto,
 } from '../dto/MicroTask.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/decorators/roles.enum';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { multerAudioS3Storage, multerCSVS3Storage } from 'src/config/minio.config';
+import {
+  multerAudioS3Storage,
+  multerCSVS3Storage,
+  multerImageS3Storage,
+} from 'src/config/minio.config';
 import { DataSource, FindOptionsWhere, QueryRunner } from 'typeorm';
 import { FileService } from 'src/common/service/File.service';
 import { ActivityLogService } from 'src/common/service/ActivityLog.service';
@@ -116,6 +118,8 @@ export class MicroTaskController {
       const data: {
         no: number;
         text: string;
+        content?: string;
+        intent?: string;
       }[] = file_content;
       // Validate the data format
       if (!Array.isArray(data) || data.length === 0) {
@@ -167,9 +171,9 @@ export class MicroTaskController {
     await queryRunner.connect();
     try {
       await queryRunner.startTransaction();
-      let sourceTasks: MicroTask[] = [];
+      let result: any;
       if (microTaskDto.from_micro_task) {
-        sourceTasks = await this.microTaskService.importMicroTaskFromOtherTask(
+        result = await this.microTaskService.importMicroTaskFromOtherTask(
           task_id,
           task_id_to_import,
           req.user.id,
@@ -177,7 +181,7 @@ export class MicroTaskController {
           microTaskDto.limit,
         );
       } else {
-        sourceTasks =
+        result =
           await this.microTaskService.importMicroTaskFromOtherTaskDataset(
             task_id,
             task_id_to_import,
@@ -187,13 +191,8 @@ export class MicroTaskController {
           );
       }
       await queryRunner.commitTransaction();
-      return (
-        'Imported ' +
-        sourceTasks.length +
-        ' Micro Tasks from Task ID: ' +
-        task_id_to_import
-      );
-    } catch (error) {
+      return result;
+    } catch (error: any) {
       await queryRunner.rollbackTransaction();
       throw new BadRequestException(
         'Error importing micro tasks from other task: ' + error.message,
@@ -306,7 +305,7 @@ export class MicroTaskController {
       },
     },
   })
-  async createAudioDataSet(
+  async createAudioMicroTask(
     @UploadedFile() file: any,
     @Param('task_id') task_id: string,
     @Request() req,
@@ -333,7 +332,98 @@ export class MicroTaskController {
       // Call the service method to create the audio data set
       const audio = await this.microTaskService.createAudioMicroTask({
         ...dataDto,
+        type: 'audio',
       });
+      await this.activityLogService.create({
+        user_id: req.user.id,
+        action: ActivityLogActions.CREATE_MICRO_TASK,
+        metadata: 'file',
+        ip: req.ip,
+        user_agent: req.headers['user-agent'],
+        entity_type: ActivityEntityType.MICRO_TASK,
+        entity_id: audio.id,
+      });
+      await queryRunner.commitTransaction();
+      return audio;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      // delete the file from MinIO if needed
+      await this.fileService.deleteFile(file.key);
+      throw error;
+    } finally {
+      if (queryRunner) {
+        try {
+          await queryRunner.release();
+        } catch (releaseError) {
+          console.error('Error releasing queryRunner:', releaseError);
+        }
+      }
+    }
+  }
+
+  @Post('/:task_id/image')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.PROJECT_MANAGER)
+  @ApiParam({ name: 'task_id', type: 'string' })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multerImageS3Storage,
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.startsWith('image/')) {
+          return cb(
+            new BadRequestException('Only image files are allowed!'),
+            false,
+          );
+        } else {
+          cb(null, true);
+        }
+      },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  async createImageMicroTask(
+    @UploadedFile() file: any,
+    @Param('task_id') task_id: string,
+    @Request() req,
+  ) {
+    // get the file path from the file object
+    if (!file) throw new BadRequestException('Audio Required');
+    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    const is_test = req.body.is_test === 'true' || req.body.is_test === true;
+    const instruction = req.body.instruction ? req.body.instruction : null;
+    try {
+      const filePath = file.key; // This is the URL of the uploaded file in MinIO
+      const dataDto = {
+        task_id: task_id, // Assuming task_id is the same as micro_task_id
+        // file: filePath, // Use the file path as the text data set
+        file_path: filePath,
+        type: 'image',
+        is_test: is_test,
+        instruction: instruction,
+        contributer_id: req.user.id,
+        created_by: req.user.id,
+      };
+      // Call the service method to create the audio data set
+      const audio = await this.microTaskService.createImageMicroTask(
+        {
+          ...dataDto,
+          type: 'image',
+        },
+        queryRunner,
+      );
       await this.activityLogService.create({
         user_id: req.user.id,
         action: ActivityLogActions.CREATE_MICRO_TASK,
@@ -365,32 +455,17 @@ export class MicroTaskController {
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.PROJECT_MANAGER)
   @ApiParam({ name: 'task_id', type: 'string' })
   @UseInterceptors(
-    FilesInterceptor(
-      'files',
-      10,
-      {
-        storage: multerAudioS3Storage,
-        limits: { fileSize: 10 * 1024 * 1024 },
-        fileFilter: (req, file, cb) => {
-          if (!file.mimetype.startsWith('audio/')) {
-            return cb(new Error('Only audio files are allowed!'), false);
-          } else {
-            cb(null, true);
-          }
-        },
+    FilesInterceptor('files', 10, {
+      storage: multerAudioS3Storage,
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.startsWith('audio/')) {
+          return cb(new Error('Only audio files are allowed!'), false);
+        } else {
+          cb(null, true);
+        }
       },
-      //   {
-      //   storage: multerAudioS3Storage,
-      //   limits: { fileSize: 10 * 1024 * 1024 },
-      //   fileFilter: (req, file, cb) => {
-      //     if (!file.mimetype.startsWith('audio/')) {
-      //       return cb(new Error('Only audio files are allowed!'), false);
-      //     } else {
-      //       cb(null, true);
-      //     }
-      //   }
-      // }
-    ),
+    }),
   )
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -408,7 +483,7 @@ export class MicroTaskController {
       required: ['files'], // optional: if files are required
     },
   })
-  async createAudioDataSets(
+  async createMultipleAudioMicroTasks(
     @UploadedFiles() files: any[],
     @Param('task_id', ParseUUIDPipe) task_id: string,
     @Request() req,
@@ -422,7 +497,15 @@ export class MicroTaskController {
     const is_test = req.body.is_test === 'true' || req.body.is_test === true;
     const instruction = req.body.instruction ? req.body.instruction : null;
     try {
-      const audiosMetada = await Promise.all(
+      const audiosMetada: {
+        task_id: string;
+        file_path: string;
+        type: 'audio';
+        is_test: boolean;
+        instruction: string;
+        contributer_id: string;
+        created_by: string;
+      }[] = await Promise.all(
         files.map(async (file) => {
           const filePath = file.key; // This is the URL of the uploaded file in MinIO
           return {
@@ -477,7 +560,6 @@ export class MicroTaskController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   async findPaginate(@Query() searchSchema: GetMicroTasksDto, @Request() req) {
     const page = searchSchema.page;
     const limit = searchSchema.limit;
@@ -497,14 +579,12 @@ export class MicroTaskController {
   @Get('all')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   async findAll(@Request() req) {
     return this.microTaskService.findAll({});
   }
   @Get('my-tasks')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CONTRIBUTOR)
-  @UsePipes(new ZodValidationPipe())
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'role', required: false, type: Number })
@@ -521,7 +601,7 @@ export class MicroTaskController {
     Role.REVIEWER,
     Role.CONTRIBUTOR,
   )
-  // @UsePipes(new ZodValidationPipe())
+  //
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async findByTask(
@@ -553,7 +633,6 @@ export class MicroTaskController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   async findOne(@Param('id') id: string, @Request() req) {
     return this.microTaskService.findOne({ where: { id } });
   }
@@ -584,7 +663,6 @@ export class MicroTaskController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   async remove(@Param('id') id: string, @Request() req) {
     return this.microTaskService.remove(id);
   }

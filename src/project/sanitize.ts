@@ -23,8 +23,6 @@ export class FacilitatorContributorSanitize {
   @ApiProperty()
   facilitator_id: string;
   @ApiProperty()
-  contributor_ids: string[];
-  @ApiProperty()
   task_id: string;
   @ApiProperty()
   created_date: Date;
@@ -34,7 +32,6 @@ export class FacilitatorContributorSanitize {
     return {
       id: facilitatorContributor.id,
       facilitator_id: facilitatorContributor.facilitator_id,
-      contributor_ids: facilitatorContributor.contributor_ids,
       task_id: facilitatorContributor.task_id,
       created_date: facilitatorContributor.created_date,
     };
@@ -176,7 +173,7 @@ export class TaskSanitize {
     };
   }
 }
-export const TaskInstructionSanitizeFields = {
+export const taskInstructionanitizeFields = {
   id: true,
   title: true,
   content: true,
@@ -186,7 +183,7 @@ export const TaskInstructionSanitizeFields = {
   task_id: true,
   created_date: true,
 };
-export class TaskInstructionSanitize {
+export class taskInstructionanitize {
   @ApiProperty()
   id: string;
   @ApiProperty()
@@ -203,7 +200,7 @@ export class TaskInstructionSanitize {
   task_id: string;
   @ApiProperty()
   created_date: Date;
-  static from(taskInstruction: TaskInstruction): TaskInstructionSanitize {
+  static from(taskInstruction: TaskInstruction): taskInstructionanitize {
     return {
       id: taskInstruction.id,
       title: taskInstruction.title,
