@@ -36,9 +36,9 @@ export class ChapaPaymentService {
   private authenticationKey: string;
   private merchantId: string;
   constructor(private readonly configService: ConfigService) {
-    this.baseUrl = configService.get<string>('CHAPA_BASE_URL') || '';
+    this.baseUrl = configService.get<string>('PAYMENT_BASE_URL') || '';
     this.authenticationKey =
-      this.configService.get<string>('CHAPA_AUTHENTICATION_KEY') || '';
+      this.configService.get<string>('PAYMENT_MERCHANT_ID') || '';
   }
   async withDrawMoney(withDrawData: {
     account_name?: string;
