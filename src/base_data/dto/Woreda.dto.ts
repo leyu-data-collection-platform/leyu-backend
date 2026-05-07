@@ -1,15 +1,22 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 
-export const createWoredaSchema = z.object({
-  name: z.string().min(1),
-  zone_id: z.string().uuid(),
-});
+export class CreateWoredaDto {
+  @IsString()
+  @MinLength(1)
+  name: string;
 
-export const updateWoredaSchema = z.object({
-  name: z.string().min(1).optional(),
-  zone_id: z.string().uuid().optional(),
-});
+  @IsString()
+  @MinLength(1)
+  zone_id: string;
+}
+export class UpdateWoredaDto {
+  @IsString()
+  @MinLength(1)
+  @IsOptional()
+  name?: string;
 
-export class CreateWoredaDto extends createZodDto(createWoredaSchema) {}
-export class UpdateWoredaDto extends createZodDto(updateWoredaSchema) {}
+  @IsString()
+  @MinLength(1)
+  @IsOptional()
+  zone_id?: string;
+}

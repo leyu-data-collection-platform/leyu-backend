@@ -5,4 +5,5 @@ export enum Role {
   PROJECT_MANAGER = 'ProjectManager',
   ADMIN = 'Admin',
   SUPER_ADMIN = 'SuperAdmin',
+  QA = 'QualityAssurance',
 }

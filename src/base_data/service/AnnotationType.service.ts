@@ -58,6 +58,62 @@ export class AnnotationTypeService {
     await manager.update(id, annotationType);
     return await manager.findOne({ where: { id } });
   }
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<AnnotationType> {
+    const annotationType = await this.annotationTypeRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      throw new BadRequestException('Language already exists');
+    }
+    annotationType.alternative_names.push({
+      key: languageKey,
+      name: alternative_name,
+    });
+    return await this.annotationTypeRepository.save(annotationType);
+  }
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<AnnotationType> {
+    const annotationType = await this.annotationTypeRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.annotationTypeRepository.save(annotationType);
+  }
 
   async remove(id: string): Promise<void> {
     await this.annotationTypeRepository.softDelete({ id });

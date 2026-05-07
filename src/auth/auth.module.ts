@@ -25,7 +25,8 @@ import { UserDeviceToken } from './entities/UserDeviceToken.entity';
 import { FinanceModule } from 'src/finance/finance.module';
 import { UserScore } from './entities/UserScore.entity';
 import { UserScoreService } from './service/UserScore.service';
-
+import { UserReferral } from './entities/UserReferral.entity';
+import { UserReferralService } from './service/UserReferral.service';
 @Global() // Make AuthModule globally available
 @Module({
   imports: [
@@ -38,14 +39,15 @@ import { UserScoreService } from './service/UserScore.service';
       UserVerificationCode,
       UserDeviceToken,
       UserScore,
+      UserReferral,
     ]), // Import TypeOrmModule for Role and User entitiesM
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
+        secret: configService.get<string>('JWT_SECRET') as string,
         signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRES_IN', '24h'),
+          expiresIn: configService.get<string>('JWT_EXPIRES_IN', '24h') as any,
         },
       }),
     }),
@@ -73,6 +75,7 @@ import { UserScoreService } from './service/UserScore.service';
     UserVerificationCodeService,
     UserDeviceTokenService,
     UserScoreService,
+    UserReferralService,
   ],
   exports: [
     AuthService,

@@ -33,7 +33,6 @@ import {
   GetProjectsDto,
   UpdateProjectDto,
 } from '../dto/Project.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/decorators/roles.enum';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
@@ -142,7 +141,6 @@ export class ProjectController {
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   @ApiExtraModels(PaginatedResult, ProjectSanitize)
   @ApiResponse({
     status: 200,
@@ -174,7 +172,6 @@ export class ProjectController {
   @Get('archived')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   @ApiExtraModels(PaginatedResult, ProjectSanitize)
   @ApiResponse({
     status: 200,
@@ -229,7 +226,6 @@ export class ProjectController {
   @Get('all')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   @ApiResponse({ type: [ProjectSanitize] })
   async findAll(
     @Query() queryOption: UpdateProjectDto,
@@ -269,7 +265,6 @@ export class ProjectController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.PROJECT_MANAGER)
   @ApiResponse({ type: UserSanitize })
-  @UsePipes(new ZodValidationPipe())
   async getProjectManager(
     @Param('project_id') project_id: string,
     @Request() req,
@@ -352,7 +347,6 @@ export class ProjectController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
   @ApiResponse({ type: ProjectSanitize })
   async findOne(@Param('id') id: string, @Request() req) {
     const project = await this.projectService.findOne({
@@ -368,19 +362,19 @@ export class ProjectController {
   @Put(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
-  @UsePipes(new ZodValidationPipe())
-  // @ApiConsumes('multipart/form-data')
-  // @ApiBody({
-  //   schema: {
-  //     type: 'object',
-  //     properties: {
-  //       image: {
-  //         type: 'string',
-  //         format: 'binary',
-  //       },
-  //     },
-  //   },
-  // })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+        },
+        ...UpdateProjectDto,
+      },
+    },
+  })
   @UseInterceptors(FileInterceptor('image', { storage: multerImageS3Storage }))
   async update(
     @UploadedFile() file: any,
@@ -389,7 +383,7 @@ export class ProjectController {
     @Request() req,
   ) {
     let payload: any = { ...projectData };
-    if (file) {
+    if (file && file.key) {
       payload = { ...payload, cover_image_url: file.key };
     }
     const project = await this.projectService.update(id, {
@@ -421,7 +415,6 @@ export class ProjectController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   async remove(@Param('id') id: string, @Request() req) {
     return this.projectService.remove(id);
   }

@@ -19,6 +19,11 @@ export class AssignContributorToTaskDto {
   @IsArray()
   contributor_ids: string[];
 }
+export class AssignQAToTaskDto {
+  @ApiProperty({})
+  @IsArray()
+  qa_ids: string[];
+}
 export class ActivateToggleDto {
   @ApiProperty()
   @IsUUID()

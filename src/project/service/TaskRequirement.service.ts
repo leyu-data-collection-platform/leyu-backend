@@ -49,7 +49,6 @@ export class TaskRequirementService {
   async update(
     id: string,
     taskRequirementData: UpdateTaskRequirementDto,
-    queryRunner?: QueryRunner,
   ): Promise<TaskRequirement | null> {
     let taskDialects: { id: string; name: string }[] = [];
     console.log('taskRequirementData  ==  ', taskRequirementData.dialects);
@@ -67,21 +66,11 @@ export class TaskRequirementService {
     }
     delete taskRequirementData.dialects;
     console.log('taskDialects  ==  ', taskDialects);
-    if (queryRunner) {
-      const manager = queryRunner.manager;
-      await manager.update(TaskRequirement, id, {
-        ...taskRequirementData,
-        dialects: taskDialects,
-      });
-      return await manager.findOne(TaskRequirement, { where: { id } });
-    } else {
-      const manager = this.taskRequirementRepository;
-      await manager.update(id, {
-        ...taskRequirementData,
-        dialects: taskDialects,
-      });
-      return await manager.findOne({ where: { id } });
-    }
+    await this.taskRequirementRepository.update(id, {
+      ...taskRequirementData,
+      dialects: taskDialects,
+    });
+    return await this.taskRequirementRepository.findOne({ where: { id } });
   }
   async remove(id: string) {
     return await this.taskRequirementRepository.delete(id);

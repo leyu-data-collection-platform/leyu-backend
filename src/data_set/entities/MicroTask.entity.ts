@@ -32,8 +32,14 @@ export class MicroTask {
   @Column({ type: 'text', nullable: true })
   text: string;
 
+  @Column({ nullable: true, enum: ['audio', 'text', 'image'] })
+  type: 'audio' | 'text' | 'image';
+
   @Column({ nullable: true })
-  type: string;
+  category: string;
+
+  @Column({ nullable: true })
+  intent: string;
 
   @Column({ nullable: true })
   has_meet_target_dataset: number;
@@ -70,4 +76,10 @@ export class MicroTask {
   status: string;
   @OneToMany(() => DataSet, (dataSet) => dataSet.microTask)
   dataSets: DataSet[];
+
+  @Column({ nullable: true, type: 'uuid' })
+  derived_from_microtask_id: string;
+
+  @Column({ nullable: true, type: 'uuid' })
+  derived_from_dataset_id: string;
 }

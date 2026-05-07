@@ -1,0 +1,6 @@
+{
+    "new_task_notification_title":"New Task Assigned",
+    "new_task_notification_message":"You have been assigned a new task: {taskTitle}. Please check your dashboard for details.",
+    "task_rejected_notification_title":"Task Rejected",
+    "task_rejected_notification_message":"Your submission with code: { taskCode} on task: {taskTitle} has been rejected. Please try again."
+}

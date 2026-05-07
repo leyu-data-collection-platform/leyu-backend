@@ -1,12 +1,25 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, MaxLength, ValidateNested } from 'class-validator';
+import { AlternativeNamesDto } from './index.dto';
+import { Type } from 'class-transformer';
 
-export const createSectorSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-});
+export class CreateSectorDto {
+  @ApiProperty()
+  @IsOptional()
+  @MaxLength(100)
+  name: string;
+  @ApiProperty()
+  @IsOptional()
+  @MaxLength(300)
+  description: string;
 
-export const updateSectorSchema = createSectorSchema.partial();
-
-export class CreateSectorDto extends createZodDto(createSectorSchema) {}
-export class UpdateSectorDto extends createZodDto(updateSectorSchema) {}
+  @ApiPropertyOptional({
+    description: 'Alternative names',
+    type: [AlternativeNamesDto],
+  })
+  @Type(() => AlternativeNamesDto) //
+  @ValidateNested({ each: true })
+  @IsOptional()
+  alternative_names?: AlternativeNamesDto[];
+}
+export class UpdateSectorDto extends CreateSectorDto {}

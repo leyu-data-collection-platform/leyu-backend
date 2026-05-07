@@ -11,11 +11,13 @@ import {
 } from '@nestjs/common';
 import { AuthService } from '../service/auth.service';
 
-import { ApiBody, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../guard/jwt-auth.guard';
 import { RolesGuard } from '../guard/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { Role } from '../decorators/roles.enum';
+import { Throttle } from '@nestjs/throttler';
+// import { OtpThrottlerGuard } from '../guard/otp-throttler.guard';
 import {
   ForgotPasswordDto,
   MobileSignInDto,
@@ -55,6 +57,8 @@ export class AuthController {
   }
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
+  // @UseGuards(OtpThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 600 } })
   forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
     return this.authService.forgotPassword(forgotPasswordDto.username);
   }
@@ -77,6 +81,7 @@ export class AuthController {
   }
 
   @Get('roles')
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   getRoles() {

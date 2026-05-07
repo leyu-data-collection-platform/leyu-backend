@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   NotFoundException,
@@ -18,24 +17,26 @@ import {
   ApiBearerAuth,
   ApiExtraModels,
   getSchemaPath,
+  ApiHeaders,
 } from '@nestjs/swagger';
 import { LanguageService } from '../service/Language.service';
 import { CreateLanguageDto, UpdateLanguageDto } from '../dto/Language.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { LanguageSanitized } from '../sanitize';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/language')
 @ApiTags('Language')
 export class LanguageController {
   constructor(private readonly languageService: LanguageService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async create(@Body() languageData: CreateLanguageDto, @Request() req) {
     return this.languageService.create({
       ...languageData,
@@ -73,9 +74,16 @@ export class LanguageController {
   }
 
   @Get('all')
-  async findAll(@Query() query: UpdateLanguageDto) {
+  @ApiHeaders([{ name: 'accept-language', required: false }])
+  async findAll(
+    @Query() query: UpdateLanguageDto,
+    @Request() req,
+  ): Promise<LanguageSanitized[]> {
     const data = await this.languageService.findMany(query);
-    return data.map((item) => LanguageSanitized.from(item));
+    // get language from the header
+    const preferred_language =
+      (req.headers['accept-language'] as string) || 'en';
+    return data.map((item) => LanguageSanitized.from(item, preferred_language));
   }
 
   @Get(':id')
@@ -91,6 +99,8 @@ export class LanguageController {
 
   @Put(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() languageData: UpdateLanguageDto,
@@ -102,8 +112,30 @@ export class LanguageController {
     });
   }
 
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.languageService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.languageService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   async delete(@Param('id') id: string) {
     return this.languageService.delete(id);
   }

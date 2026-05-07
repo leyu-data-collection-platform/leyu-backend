@@ -19,6 +19,11 @@ import { TaskRedistributionService } from './service/TaskRedistribution.service'
 import { TaskSubmissionService } from './service/TaskSubmission.service';
 import { BullModule } from '@nestjs/bullmq';
 import { CacheModule } from 'src/cache/cache.module';
+import { ReviewerTaskDistributionsService } from './service/ReviewerTaskDistribution.service';
+import { DataSetReview } from './enitities/DataSetReview.entity';
+import { ReviewerTaskDistributionController } from './controllers/ReviewerTask.controller';
+import { BaseDataModule } from 'src/base_data/base_data.module';
+import { YcI18nModule } from 'src/yc-i18n/yc-i18n.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -26,6 +31,7 @@ import { CacheModule } from 'src/cache/cache.module';
       ContributorMicroTasks,
       MicroTaskStatistics,
       ReviewerTasks,
+      DataSetReview,
     ]),
     CacheModule,
     ProjectModule,
@@ -35,6 +41,8 @@ import { CacheModule } from 'src/cache/cache.module';
       // redis options if not using forRoot globally
     }),
     AuthModule,
+    BaseDataModule,
+    YcI18nModule,
   ],
   exports: [
     TaskDistributionService,
@@ -43,6 +51,7 @@ import { CacheModule } from 'src/cache/cache.module';
   ],
   providers: [
     TaskDistributionService,
+    ReviewerTaskDistributionsService,
     ContributorMicroTaskService,
     GetTasksService,
     MicroTaskStatisticsService,
@@ -54,6 +63,7 @@ import { CacheModule } from 'src/cache/cache.module';
   controllers: [
     TaskDistributionController,
     TaskDistributionMonitoringController,
+    ReviewerTaskDistributionController,
   ],
 })
 export class TaskDistributionModule {}

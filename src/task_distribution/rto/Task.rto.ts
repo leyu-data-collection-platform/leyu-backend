@@ -1,7 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { DataSet } from 'src/data_set/entities/DataSet.entity';
+import { RejectionReason } from 'src/data_set/entities/RejectionReason.entity';
 import { TaskInstruction } from 'src/project/entities/TaskInstruction.entity';
+import { LanguageConstants } from 'src/utils/constants/Language.constant';
 
+const translatedRejectionReasons = (
+  rejectionReasons: RejectionReason[],
+  userPreferredLanguage: LanguageConstants,
+): string[] => {
+  return rejectionReasons.map((rejectionReason) => {
+    return (
+      rejectionReason.rejectionType.alternative_names.find(
+        (alt) => alt.key === userPreferredLanguage,
+      )?.name ?? rejectionReason.rejectionType.name
+    );
+  });
+};
 export class ContributorDataSetRto {
   @ApiProperty()
   id: string;
@@ -21,8 +35,8 @@ export class ContributorDataSetRto {
   @ApiProperty()
   type: string;
 
-  @ApiProperty()
-  annotation: string;
+  // @ApiProperty()
+  // annotation: string;
 
   @ApiProperty({ type: 'array', isArray: true })
   rejectionReasons: string[];
@@ -35,7 +49,10 @@ export class ContributorDataSetRto {
 
   @ApiProperty({})
   isQueued: boolean;
-  static from(dataSet: DataSet): ContributorDataSetRto {
+  static from(
+    dataSet: DataSet,
+    userPreferredLanguage: LanguageConstants,
+  ): ContributorDataSetRto {
     return {
       id: dataSet.id,
       text_data_set: dataSet.text_data_set,
@@ -43,10 +60,11 @@ export class ContributorDataSetRto {
       audio_duration: dataSet.audio_duration,
       file_path: dataSet.file_path,
       type: dataSet.type,
-      annotation: dataSet.annotation,
+      // annotation: dataSet.annotation,
       rejectionReasons: dataSet.rejectionReasons
-        ? dataSet?.rejectionReasons.map(
-            (rejectionReason) => rejectionReason.rejectionType?.name,
+        ? translatedRejectionReasons(
+            dataSet.rejectionReasons,
+            userPreferredLanguage,
           )
         : [],
       flagReasons: dataSet.flagReason
@@ -56,8 +74,10 @@ export class ContributorDataSetRto {
         : [],
       isQueued: dataSet.queue_status === 'pending',
       comment:
-        dataSet.rejectionReasons && dataSet.rejectionReasons.length > 0
-          ? dataSet.rejectionReasons[0].comment
+        dataSet.status === 'Rejected'
+          ? dataSet.dataSetReviews && dataSet.dataSetReviews.length > 0
+            ? dataSet.dataSetReviews.map((review) => review.comment).join(',')
+            : ''
           : '',
     };
   }
@@ -91,7 +111,7 @@ export class ContributorMicroTaskRto {
   can_retry: boolean;
 
   @ApiProperty({ type: ContributorDataSetRto })
-  dataSet?: ContributorDataSetRto;
+  dataSet?: ContributorDataSetRto | undefined;
 
   static from(
     microTask: {
@@ -108,8 +128,8 @@ export class ContributorMicroTaskRto {
       acceptance_status: 'APPROVED' | 'REJECTED' | 'PENDING' | 'NOT_STARTED';
       can_retry: boolean;
     },
+    preferredLanguage,
   ): ContributorMicroTaskRto {
-    const hasDataSet = false;
     let dataSet: DataSet | undefined = undefined;
     if (microTask.dataSets && microTask.dataSets.length > 0) {
       dataSet = microTask.dataSets[microTask.dataSets.length - 1];
@@ -120,7 +140,9 @@ export class ContributorMicroTaskRto {
       file_path: microTask.file_path,
       text: microTask.text,
       type: microTask.type,
-      dataSet: dataSet ? ContributorDataSetRto.from(dataSet) : undefined,
+      dataSet: dataSet
+        ? ContributorDataSetRto.from(dataSet, preferredLanguage)
+        : undefined,
       current_retry: metadata.current_retry,
       allowed_retry: metadata.allowed_retry,
       acceptance_status: metadata.acceptance_status,
@@ -596,3 +618,18 @@ export type MobilePaginatedTaskResponse = {
   page: number;
   limit: number;
 };
+
+export class ContributorTaskProgressRto {
+  @ApiProperty()
+  completed_micro_tasks: number;
+  @ApiProperty()
+  pending_micro_tasks: number;
+  @ApiProperty()
+  rejected_datasets: number;
+  @ApiProperty()
+  under_review_datasets: number;
+  @ApiProperty()
+  total_submitted_hrs: number;
+  @ApiProperty()
+  total_expired_micro_tasks: number;
+}

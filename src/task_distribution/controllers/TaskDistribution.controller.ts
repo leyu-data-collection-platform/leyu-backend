@@ -38,15 +38,19 @@ import {
   TaskStatus,
 } from '../rto/Task.rto';
 import { FileService } from 'src/common/service/File.service';
+import { AudioService } from 'src/common/service/Audio.service';
 import { taskTypes } from 'src/utils/constants/Task.constant';
 import { GetContributorTasksDto } from '../dto/Task.dto';
-import { AudioService } from 'src/common/service/Audio.service';
 import { DataSetSanitize } from 'src/data_set/sanitize';
 import { GetTasksService } from '../service/GetTask.service';
 import { TaskSubmissionService } from '../service/TaskSubmission.service';
 import { TaskRedistributionService } from '../service/TaskRedistribution.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { ReviewerTaskDistributionsService } from '../service/ReviewerTaskDistribution.service';
+import { unlink } from 'fs';
+import { promisify } from 'util';
+export const unlinkAsync = promisify(unlink);
 
 @Controller('task-distribution')
 @ApiTags('Task Distribution')
@@ -56,42 +60,14 @@ export class TaskDistributionController {
     private readonly taskDistributionService: TaskDistributionService,
     private readonly taskSubmissionService: TaskSubmissionService,
     private readonly taskRedistributionService: TaskRedistributionService,
+    private readonly reviewerTaskDistributionService: ReviewerTaskDistributionsService,
     private readonly getTaskService: GetTasksService,
     private readonly fileService: FileService,
-    private readonly audioService:AudioService,
+    private readonly audioService: AudioService,
     private readonly dataSource: DataSource,
     @InjectQueue('file-upload')
     private readonly fileQueue: Queue,
   ) {}
-
-  // @Get('assigned-tasks')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(Role.CONTRIBUTOR)
-  // @ApiOperation({ summary: 'Get my tasks' })
-  // @ApiResponse({ status: 200, description: 'My tasks', type: [TaskStatus] })
-  // /**
-  //  * Get the tasks assigned to the current user
-  //  * @param paginateDto Pagination query
-  //  * @param req Request object
-  //  * @returns The tasks assigned to the current user
-  //  */
-  // async getUserAssignedTasks(
-  //   @Query() paginateDto: PaginationDto,
-  //   @Request() req,
-  // ): Promise<PaginatedResult<TaskStatus>> {
-  //   let user_id = req.user.id;
-  //   let data=await this.taskDistributionService.getUserAssignedNewTasks(
-  //     user_id,
-  //     paginateDto,
-  //   );
-  //   let results:TaskStatus[]=[];
-  //   for (const task of data.result) {
-  //     results.push(TaskStatus.fromSelf(task));
-  //   }
-  //   data.result=results;
-  //   return data
-  // }
-
   @Get('my-tasks')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CONTRIBUTOR)
@@ -123,101 +99,31 @@ export class TaskDistributionController {
     data.result = results;
     return data;
   }
-
-  // @Get('recent-assigned-tasks/all')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(Role.CONTRIBUTOR)
-  // @ApiOperation({ summary: 'Get my tasks' })
-  // @ApiResponse({ status: 200, description: 'My tasks' })
-  // /**
-  //  * Get the tasks assigned to the current user
-  //  * @param paginateDto Pagination query
-  //  * @param req Request object
-  //  * @returns The tasks assigned to the current user
-  //  */
-  // async getAllUserRecentUserAssignedTasks(@Request() req) {
-  //   let user_id = req.user.id;
-  //   return this.taskDistributionService.getAllUserAssignedRecentTasks(user_id);
-  // }
-  // @Get('recent-assigned-tasks')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(Role.CONTRIBUTOR)
-  // @ApiOperation({ summary: 'Get my tasks' })
-  // @ApiResponse({ status: 200, description: 'My tasks',type: [RecentTaskRto] })
-  // /**
-  //  * Get the tasks assigned to the current user
-  //  * @param paginateDto Pagination query
-  //  * @param req Request object
-  //  * @returns The tasks assigned to the current user
-  //  */
-  // async getRecentUserAssignedTasks(
-  //    @Query() paginateDto: PaginationDto,
-  //   @Request() req,
-  // ) : Promise<PaginatedResult<RecentTaskRto>> {
-  //   let user_id = req.user.id;
-  //   let data= await this.taskDistributionService.getUserRecentTasks(user_id, paginateDto);
-  //   let results:RecentTaskRto[]=[];
-  //   for (const task of data.result) {
-  //     results.push(RecentTaskRto.fromSelf(task));
-  //   }
-  //   data.result=results;
-  //   return data
-  // }
-
-  //  @Get('recent-assigned-tasks')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(Role.CONTRIBUTOR)
-  // @ApiOperation({ summary: 'Get my tasks' })
-  // @ApiResponse({ status: 200, description: 'My tasks',type: [RecentTaskRto] })
-  // /**
-  //  * Get the tasks assigned to the current user
-  //  * @param paginateDto Pagination query
-  //  * @param req Request object
-  //  * @returns The tasks assigned to the current user
-  //  */
-  // async getRecentUserAssignedTasksV2(
-  //    @Query() paginateDto: PaginationDto,
-  //   @Request() req,
-  // ) : Promise<PaginatedResult<ContributorRecentTaskRto>> {
-  //   let user_id = req.user.id;
-  //   let data= await this.getTaskService.getUserRecentTasksV2(user_id, paginateDto);
-  //   let results:ContributorRecentTaskRto[]=[];
-  //   for (const task of data.result) {
-  //     results.push(ContributorRecentTaskRto.fromSelf(task));
-  //   }
-  //   data.result=results;
-  //   return data
-  // }
-
-  // @Get('assigned-tasks/:task_id')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(Role.CONTRIBUTOR)
-  // @ApiOperation({ summary: 'Get my tasks' })
-  // @ApiResponse({ status: 200, description: 'My tasks', type: TaskMicroTasksResponse })
-  // async getUserAssignedTaskMicroTasks(
-  //   @Param('task_id', ParseUUIDPipe) task_id: string,
-  //   @Request() req,
-  // ): Promise<TaskMicroTasksResponse> {
-  //   let user_id = req.user.id;
-  //   const task:TaskMicroTasksResponse =await this.getTaskService.getUserAssignedTaskMicroTasksV2(
-  //     user_id,
-  //     task_id,
-  //   );
-  //   if(task.task_type==taskTypes.AUDIO_TO_TEXT){
-  //     for (const mt of task.contributorMicroTask ){
-  //       mt.file_path=await this.fileService.getPreSignedUrl(mt.file_path);
-  //     }
-  //   }
-  //   if (task.task_type == taskTypes.TEXT_TO_AUDIO) {
-  //     for (const mt of task.contributorMicroTask ){
-  //       if (mt.dataSet) {
-  //         mt.dataSet.file_path=await this.fileService.getPreSignedUrl(mt.dataSet.file_path);
-  //       }
-  //     }
-  //   }
-  //   return task;
-  // }
-
+  @Get('test/:task_id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.PROJECT_MANAGER)
+  @ApiOperation({
+    description:
+      'Api for getting the tasks assigned to the current user (for contributor)',
+    summary: 'Get my tasks',
+  })
+  @ApiResponse({ status: 200, description: 'My tasks', type: [TaskStatus] })
+  /**
+   * Get the tasks assigned to the current user
+   * @param paginateDto Pagination query
+   * @param req Request object
+   * @returns The tasks assigned to the current user
+   */
+  async test(
+    @Param('task_id', new ParseUUIDPipe()) task_id: string,
+    @Request() req,
+  ): Promise<any> {
+    const data =
+      await this.reviewerTaskDistributionService.distributeTaskDataSets(
+        task_id,
+      );
+    return data;
+  }
   @Get('assigned-tasks/:task_id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CONTRIBUTOR)
@@ -234,12 +140,19 @@ export class TaskDistributionController {
     const user_id = req.user.id;
     const task: TaskMicroTasksResponse =
       await this.getTaskService.getContributorTaskMicroTasks(user_id, task_id);
-    if (task.task_type == taskTypes.AUDIO_TO_TEXT) {
+    if (
+      task.task_type == taskTypes.AUDIO_TO_TEXT ||
+      task.task_type == taskTypes.IMAGE_TO_TEXT ||
+      task.task_type == taskTypes.IMAGE_TO_AUDIO
+    ) {
       for (const mt of task.contributorMicroTask) {
         mt.file_path = await this.fileService.getPreSignedUrl(mt.file_path);
       }
     }
-    if (task.task_type == taskTypes.TEXT_TO_AUDIO) {
+    if (
+      task.task_type == taskTypes.TEXT_TO_AUDIO ||
+      task.task_type == taskTypes.IMAGE_TO_AUDIO
+    ) {
       for (const mt of task.contributorMicroTask) {
         if (mt.dataSet) {
           mt.dataSet.file_path = await this.fileService.getPreSignedUrl(
@@ -357,8 +270,11 @@ export class TaskDistributionController {
       throw new Error('Task ID is required');
     }
     try {
-      await this.taskDistributionService.distributeTaskForReviewers(task_id);
-      return { message: ' Task distributed for reviewers' };
+      const result =
+        await this.reviewerTaskDistributionService.distributeTaskDataSets(
+          task_id,
+        );
+      return { message: ' Task distributed for reviewers', result };
     } catch (error) {
       throw error;
     }
@@ -400,6 +316,7 @@ export class TaskDistributionController {
   async contributeMultipleSpeech(
     @UploadedFiles() files: Express.Multer.File[],
     @Param('task_id', new ParseUUIDPipe()) task_id: string,
+    @Body() body: any,
     @Request() req,
   ) {
     if (!files || files.length === 0) {
@@ -409,7 +326,7 @@ export class TaskDistributionController {
     const submissions: {
       micro_task_id: string;
       file_path: string;
-      audio_duration:number;
+      audio_duration: any;
     }[] = [];
     let { is_test } = req.body; // Get batch from request body, default to false
     is_test = is_test === 'true' || is_test === true; // Convert to boolean
@@ -418,10 +335,9 @@ export class TaskDistributionController {
         submissions.push({
           micro_task_id: file.fieldname,
           file_path: '', //  file.key, // Use the file key as the file path
-           audio_duration:await this.audioService.getAudioDuration(file.path),
+          audio_duration: await this.audioService.getAudioDuration(file.path),
         });
       }
-
       const data_Sets =
         await this.taskSubmissionService.submitMultipleAudioDatasets(
           req.user.id,
@@ -452,9 +368,13 @@ export class TaskDistributionController {
           },
         );
       }
-      // await queryRunner.commitTransaction();
       return data_Sets;
     } catch (error) {
+      await Promise.all(
+        files.map(async (file) => {
+          await unlinkAsync(file.path);
+        }),
+      );
       throw error;
     }
   }

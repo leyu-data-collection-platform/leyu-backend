@@ -16,13 +16,13 @@ export class SmsService {
     phone: string,
     otp: string,
   ): Promise<{ error?: string; afro: AfroResponse | null }> {
-    const base_url = process.env.SMS_BASE_URL + '/send';
-    const token = process.env.SMS_TOKEN as string;
-    const identifierId = process.env.SMS_IDENTIFIER as string;
+    const base_url = process.env.AFRO_SMS_BASE_URL + '/send';
+    const token = process.env.AFRO_TOKEN as string;
+    const identifierId = process.env.AFRO_SMS_IDENTIFIER as string;
     const headers = {
       Authorization: `Bearer ${token}`,
     };
-    const sender = process.env.SMS_SENDER as string; //process.env.SMS_SENDER as string
+    const sender = process.env.AFRO_SMS_SENDER as string; //process.env.AFRO_SMS_SENDER as string
     const message = `Your verification code is ${otp}`;
     console.log(message);
     const sendTry = `${base_url}?from=${identifierId}&sender=${sender}&to=${phone}&message=${message}`;

@@ -12,7 +12,7 @@ import { PublisherService } from './service/RabbitPublish.service';
 import { RabbitMQModule } from '@golevelup/nestjs-rabbitmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TestController } from './controllers/Test.controller';
-import {AudioService } from './service/Audio.service'
+import { AudioService } from './service/Audio.service';
 @Global()
 @Module({
   imports: [
@@ -24,12 +24,19 @@ import {AudioService } from './service/Audio.service'
         exchanges: [
           {
             name: config.get<string>('RABBITMQ_EXCHANGE_NAME') as string,
-            type: config.get<string>('RABBITMQ_EXCHANGE_TYPE') as any,
+            type: config.get<string>('RABBITMQ_EXCHANGE_TYPE'),
           },
           {
             name: config.get<string>(
               'DATASET_RABBITMQ_EXCHANGE_NAME',
             ) as string,
+          },
+          {
+            name:
+              (config.get<string>('ID_VERIFICATION_EXCHANGE_NAME') as string) ||
+              'id_verification.exchange',
+            type: 'direct',
+            options: { durable: true },
           },
         ],
         queues: [
@@ -53,7 +60,7 @@ import {AudioService } from './service/Audio.service'
     ActivityLogService,
     NotificationService,
     PublisherService,
-    AudioService
+    AudioService,
   ],
   exports: [
     PaginationService,
@@ -61,7 +68,7 @@ import {AudioService } from './service/Audio.service'
     ActivityLogService,
     NotificationService,
     PublisherService,
-    AudioService
+    AudioService,
   ],
 })
 export class CommonModule {}

@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -18,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiExtraModels,
   getSchemaPath,
+  ApiHeaders,
 } from '@nestjs/swagger';
 import { RegionService } from '../service/Region.service';
 import {
@@ -25,22 +25,23 @@ import {
   SearchRegionDto,
   UpdateRegionDto,
 } from '../dto/Region.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { PaginatedResult } from 'src/utils/paginate.util';
 import { RegionSanitized } from '../sanitize';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/region')
 @ApiTags('Region')
 export class RegionController {
   constructor(private readonly regionService: RegionService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
   @ApiOperation({ summary: 'Create a new region' })
   @ApiResponse({ status: 201, description: 'Region created successfully' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async create(@Body() createRegionDto: CreateRegionDto, @Request() req) {
     return this.regionService.create({
       ...createRegionDto,
@@ -92,29 +93,39 @@ export class RegionController {
   }
   @Get('all')
   @ApiOperation({ summary: 'Get all regions' })
+  @ApiHeaders([{ name: 'accept-language', required: false }])
   @ApiResponse({
     status: 200,
     description: 'Regions retrieved successfully',
     type: [RegionSanitized],
   })
-  async findAll(@Query() search: UpdateRegionDto): Promise<RegionSanitized[]> {
+  async findAll(
+    @Query() search: UpdateRegionDto,
+    @Request() req,
+  ): Promise<RegionSanitized[]> {
     const regions = await this.regionService.findMany(search);
-    return regions.map((item) => RegionSanitized.from(item));
+    const preferredLanguage =
+      (req.headers['accept-language'] as string) || 'en';
+    return regions.map((item) => RegionSanitized.from(item, preferredLanguage));
   }
 
   @Get('/country/:id')
-  @ApiOperation({ summary: 'Get a region by id' })
+  @ApiOperation({ summary: 'Get a region by country ' })
   @ApiResponse({
     status: 200,
     description: 'Regions retrieved successfully',
     type: [RegionSanitized],
   })
+  @ApiHeaders([{ name: 'accept-language', required: false }])
   async findCountryRegions(
     @Param('id') id: string,
+    @Request() req,
   ): Promise<RegionSanitized[]> {
     const country_id = id;
+    const preferredLanguage =
+      (req.headers['accept-language'] as string) || 'en';
     const regions = await this.regionService.findMany({ country_id });
-    return regions.map((item) => RegionSanitized.from(item));
+    return regions.map((item) => RegionSanitized.from(item, preferredLanguage));
   }
 
   @Get(':id')
@@ -127,11 +138,11 @@ export class RegionController {
   }
 
   @Put(':id')
-  @UsePipes(new ZodValidationPipe())
   @ApiOperation({ summary: 'Update a region' })
   @ApiResponse({ status: 200, description: 'Region updated successfully' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() updateRegionDto: UpdateRegionDto,
@@ -143,6 +154,27 @@ export class RegionController {
     });
   }
 
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.regionService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.regionService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a region' })
   @ApiResponse({ status: 200, description: 'Region deleted successfully' })

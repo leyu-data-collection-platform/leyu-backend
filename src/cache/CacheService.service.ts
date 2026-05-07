@@ -13,11 +13,10 @@ import {
 
 @Injectable()
 export class CacheService implements OnModuleInit, OnModuleDestroy {
-  constructor(
-    private readonly configService: ConfigService,
-  ) {}
+  private cachedTaskIds: string[] = [];
+  constructor(private readonly configService: ConfigService) {}
   async onModuleInit() {
-    const redisUrl = this.configService.get<string>('REDIS_URL') as string;
+    const redisUrl = this.configService.get<string>('REDIS_URL') || '';
     this.client = new Redis(redisUrl);
     this.client.on('connect', () => this.logger.log('Connected to Redis'));
     this.client.on('error', (err) => this.logger.error('Redis error', err));
@@ -28,6 +27,20 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
   //This function takes a contributorId and returns a document that contains the contributors task with the given contributorId.
   private contributorTaskKey(contributorId: string) {
     return `contrib:task:${contributorId}`;
+  }
+
+  async get(key: string) {
+    if (!this.client) throw new Error('Redis client not initialized');
+    return this.client.get(key);
+  }
+  async set(key: string, value: string, ttl: number) {
+    if (!this.client) throw new Error('Redis client not initialized');
+    return this.client.set(key, value, 'EX', ttl);
+  }
+
+  async del(key: string) {
+    if (!this.client) throw new Error('Redis client not initialized');
+    return this.client.del(key);
   }
 
   /**
@@ -66,7 +79,8 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     const key = this.contributorTaskKey(contributorId);
     await this.client.set(key, JSON.stringify(payload));
     // set expire time
-    await this.client.expire(key, 12 * 60 * 60);
+    await this.client.expire(key, 20 * 60);
+    this.cachedTaskIds.push(key);
   }
 
   async writeContributorTaskMicroTasks(
@@ -77,7 +91,8 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     if (!this.client) throw new Error('Redis client not initialized');
     const key = this.contributorTaskMicroKey(taskId, contributorId);
     await this.client.set(key, JSON.stringify(payload));
-    await this.client.expire(key, 12 * 60 * 60);
+    await this.client.expire(key, 20 * 60);
+    this.cachedTaskIds.push(key);
   }
 
   /**
@@ -255,7 +270,22 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
    * - description: function that clears all cached data from Redis
    */
   async clearAllCache(): Promise<void> {
+    // clear all keys related to contributor tasks
+
     if (!this.client) throw new Error('Redis client not initialized');
     await this.client.flushall();
+  }
+  async clearCacheByTaskId(taskId: string): Promise<void> {
+    if (!this.client) throw new Error('Redis client not initialized');
+    const keysToDelete = this.cachedTaskIds.filter((key) =>
+      key.includes(taskId),
+    );
+    if (keysToDelete.length > 0) {
+      await this.client.del(...keysToDelete);
+      this.cachedTaskIds = this.cachedTaskIds.filter(
+        (key) => !key.includes(taskId),
+      );
+    }
+    this.logger.log(`Deleted ${keysToDelete.length} keys for taskId ${taskId}`);
   }
 }

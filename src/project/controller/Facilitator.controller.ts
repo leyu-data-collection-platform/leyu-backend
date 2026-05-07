@@ -6,7 +6,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -20,16 +19,14 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/decorators/roles.enum';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { RemoveContributorFromFacilitatorDto } from '../dto/UserTask.dto';
 import { FacilitatorContributorService } from '../service/FacilitatorContributor.service';
-import { GetUsersFilterDto } from 'src/auth/dto/User.dto';
-import { DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { User } from 'src/auth/entities/User.entity';
+import { GetFacilitatorContributorsFilterDto } from 'src/auth/dto/User.dto';
+import { DataSource } from 'typeorm';
 import { PaginatedResult } from 'src/utils/paginate.util';
 import { FindFacilitatorContributorsDto } from '../dto/Task.dto';
 import { UserSanitize } from 'src/auth/sanitize';
@@ -65,57 +62,13 @@ export class FacilitatorController {
   @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   async getUnassignedContributors(
     @Param('task_id') task_id: string,
-    @Query() searchSchema: GetUsersFilterDto,
+    @Query() searchSchema: GetFacilitatorContributorsFilterDto,
   ): Promise<PaginatedResult<UserSanitize>> {
-    let search: string | undefined = searchSchema.search;
-    const page = searchSchema.page;
-    const limit = searchSchema.limit;
-
-    const baseFilters: FindOptionsWhere<User> = {};
-    const searchFilters: FindOptionsWhere<User>[] = [];
-    // Clean up
-    delete searchSchema.page;
-    delete searchSchema.limit;
-    delete searchSchema.search;
-    for (const [key, value] of Object.entries(searchSchema)) {
-      if (value !== undefined && value !== null) {
-        if (['is_active', 'gender'].includes(key)) {
-          baseFilters[key] = value;
-        } else {
-          baseFilters[key] = ILike(`%${value}%`);
-        }
-      }
-    }
-    // Build search filter if applicable
-    if (search) {
-      search = search.trim();
-      searchFilters.push(
-        { ...baseFilters, email: ILike(`%${search}%`) },
-        { ...baseFilters, first_name: ILike(`%${search}%`) },
-        { ...baseFilters, last_name: ILike(`%${search}%`) },
-        { ...baseFilters, phone_number: ILike(`%${search}%`) },
-      );
-    }
-    const query: FindOptionsWhere<User> | FindOptionsWhere<User>[] = search
-      ? searchFilters
-      : baseFilters;
-
-    const data =
-      await this.facilitatorContributorService.getUnassignedContributors(
-        task_id,
-        query,
-        { page, limit },
-      );
-    const users = data.result.map((item) => {
-      return item.user;
-    });
-    return {
-      result: users.map((item) => UserSanitize.from(item)),
-      total: data.total,
-      page: data.page,
-      limit: data.limit,
-      totalPages: data.totalPages,
-    };
+    const search: string | undefined = searchSchema.search;
+    return await this.facilitatorContributorService.getUnassignedContributors(
+      task_id,
+      searchSchema,
+    );
   }
 
   @Delete('remove-contributors/:facilitator_id')
@@ -159,7 +112,6 @@ export class FacilitatorController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FACILITATOR)
-  @UsePipes(new ZodValidationPipe())
   async findMyTaskFacilitatorContributors(
     @Param('task_id') task_id: string,
     @Query() paginateDto: PaginationDto,

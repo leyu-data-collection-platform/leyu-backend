@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   NotFoundException,
@@ -17,9 +16,9 @@ import {
   ApiResponse,
   ApiOperation,
   ApiBearerAuth,
-  ApiQuery,
   ApiExtraModels,
   getSchemaPath,
+  ApiHeaders,
 } from '@nestjs/swagger';
 import { CountryService } from '../service/Country.service';
 import {
@@ -28,11 +27,12 @@ import {
   UpdateCountryDto,
 } from '../dto/Country.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { CountrySanitized } from '../sanitize';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 
 @ApiTags('Country')
 @ApiExtraModels(SearchCountryDto, PaginationDto)
@@ -41,9 +41,9 @@ export class CountryController {
   constructor(private readonly countryService: CountryService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe(CreateCountryDto))
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async create(@Body() body: CreateCountryDto, @Request() req) {
     return await this.countryService.create({
       ...body,
@@ -52,18 +52,15 @@ export class CountryController {
   }
 
   @Get('all')
-  @UsePipes(new ZodValidationPipe(SearchCountryDto)) // Correctly applying ZodValidationPipe
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    schema: { $ref: getSchemaPath(SearchCountryDto) },
-  })
   @ApiOperation({ summary: 'Get all Countries' })
-  async findAll(
-    @Query() search: SearchCountryDto,
-  ): Promise<CountrySanitized[]> {
-    const countries = await this.countryService.findMany(search);
-    return countries.map((item) => CountrySanitized.from(item));
+  @ApiHeaders([{ name: 'accept-language', required: false }])
+  async findAll(@Request() req): Promise<CountrySanitized[]> {
+    const preferredLanguage =
+      (req.headers['accept-language'] as string) || 'en';
+    const countries = await this.countryService.findMany({});
+    return countries.map((item) =>
+      CountrySanitized.from(item, preferredLanguage),
+    );
   }
 
   @Get('')
@@ -104,10 +101,11 @@ export class CountryController {
 
   @Put(':id')
   @ApiOperation({ summary: 'Update a Country by id' })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   async update(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe()) updateCountryDto: UpdateCountryDto,
+    @Body() updateCountryDto: UpdateCountryDto,
     @Request() req,
   ) {
     return await this.countryService.update(id, {
@@ -116,8 +114,30 @@ export class CountryController {
     });
   }
 
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.countryService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.countryService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  // }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a Country by id' })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   async remove(@Param('id') id: string) {
     return await this.countryService.delete(id);

@@ -5,13 +5,11 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Task } from './Task.entity';
 import { User } from 'src/auth/entities/User.entity';
 
-@Unique(['facilitator_id', 'task_id'])
 @Entity('facilitator_contributor')
 export class FacilitatorContributor {
   @PrimaryGeneratedColumn('uuid')
@@ -24,11 +22,15 @@ export class FacilitatorContributor {
   @JoinColumn({ name: 'facilitator_id' })
   facilitator: User;
 
-  @Column({ type: 'text', array: true, nullable: true })
-  contributor_ids: string[];
+  @Column({ type: 'uuid' })
+  contributor_id: string;
 
-  @Column()
+  @Column({ type: 'uuid' })
   task_id: string;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'contributor_id' })
+  contributor: User;
 
   @ManyToOne(() => Task, (task) => task.facilitatorContributors)
   @JoinColumn({ name: 'task_id' })

@@ -3,19 +3,15 @@ import { IsEnum, IsNumber, IsString } from 'class-validator';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 
 export class WithdrawMoneyDto {
-  @ApiProperty({
-    description: 'Payment Method',
-    enum: ['Telebirr', 'CBE Birr'],
-  })
-  @IsEnum(['Telebirr', 'CBE Birr'])
-  paymentMethod: 'Telebirr' | 'CBE Birr';
-
-  @ApiProperty({ description: 'Phone Number' })
+  @ApiProperty({ description: 'User account number' })
   @IsString()
-  phoneNumber: string;
-
-  @ApiProperty({ description: 'Amount to withdraw' })
+  account_number: string;
+  @ApiProperty({ description: 'Withdrawal amount' })
+  @IsNumber()
   amount: number;
+  @ApiProperty({ description: 'Bank code' })
+  @IsString()
+  bank_code: string;
 }
 export class GetTransactionDto extends PaginationDto {
   @ApiProperty({

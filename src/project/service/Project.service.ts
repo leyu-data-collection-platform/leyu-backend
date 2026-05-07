@@ -22,8 +22,10 @@ import { paginate, PaginatedResult } from 'src/utils/paginate.util';
 import { TaskService } from './Task.service';
 import { UserTask } from '../entities/UserTask.entity';
 import { UserTaskService } from './UserTask.service';
+import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class ProjectService {
+  private readonly dashBoardUrl: string;
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
@@ -34,10 +36,12 @@ export class ProjectService {
     private readonly emailService: EmailService,
     @Inject(forwardRef(() => TaskService))
     private taskService: TaskService,
+    private readonly configService: ConfigService,
   ) {
     this.paginateService = new PaginationService<Project>(
       this.projectRepository,
     );
+    this.dashBoardUrl = this.configService.get<string>('FRONTEND_URL') || '';
   }
 
   /**
@@ -251,7 +255,14 @@ export class ProjectService {
         user.email,
         'Welcome to Leyu platform',
         `
-          Dear ${user.first_name} ${user.middle_name},you are assigned as a Project Manager for the project ${project?.name}
+          Dear ${user.first_name || 'user'} ${user.middle_name || ''},
+
+          You have been assigned as a Project Manager for the project ${project?.name}.
+
+          Please visit the Leyu platform to view your project details and next steps.
+
+          Best regards,
+          Leyu Team
           `,
       );
     }
@@ -266,13 +277,12 @@ export class ProjectService {
         queryRunner,
       );
       // Send email to user with random password
-      this.emailService.sendEmail(
+      this.emailService.sendLeyuAccountEmail(
         user.email,
-        'Welcome to Leyu platform',
-        `
-            Dear user, welcome to our platform,you are assigned as a Project Manager for the project ${project?.name}
-            Your password is ${randomPassword}
-            `,
+        role.name,
+        user.phone_number,
+        randomPassword,
+        this.dashBoardUrl,
       );
     }
     return await this.update(

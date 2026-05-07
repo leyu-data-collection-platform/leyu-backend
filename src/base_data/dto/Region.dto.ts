@@ -1,6 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  ValidateNested,
+} from 'class-validator';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
+import { AlternativeNamesDto } from './index.dto';
+import { Type } from 'class-transformer';
 
 export class CreateRegionDto {
   @ApiProperty()
@@ -31,6 +39,12 @@ export class UpdateRegionDto {
   @IsUUID()
   @IsOptional()
   country_id?: string;
+
+  @ApiProperty({ required: false, type: [AlternativeNamesDto] })
+  @Type(() => AlternativeNamesDto)
+  @IsOptional()
+  @ValidateNested({ each: true })
+  alternative_names?: AlternativeNamesDto[];
 }
 
 export class SearchRegionDto extends PaginationDto {

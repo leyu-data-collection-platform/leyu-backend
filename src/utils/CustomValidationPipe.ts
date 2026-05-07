@@ -20,6 +20,7 @@ export class CustomValidationPipe extends ValidationPipe {
           400,
         );
       },
+      whitelist: true,
     });
   }
 }

@@ -17,6 +17,12 @@ export class AnnotationType {
   @Column({ unique: true })
   name: string;
 
+  @Column({ type: 'jsonb', nullable: true, default: () => "'[]'" })
+  alternative_names: {
+    key: string;
+    name: string;
+  }[];
+
   @Column()
   description: string;
 

@@ -2,7 +2,9 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class TaskDataSetReviewerDistributionRto {
   @ApiProperty()
-  totalAssignedDataSets: number;
+  totalFullyAssignedDataSets: number;
+  @ApiProperty()
+  totalPartiallyAssignedDataSets: number;
   @ApiProperty()
   totalReviewedDataSets: number;
   @ApiProperty()

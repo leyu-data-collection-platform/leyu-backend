@@ -1,6 +1,6 @@
-export const DataSetStatus = {
-  PENDING: 'Pending',
-  APPROVED: 'Approved',
-  REJECTED: 'Rejected',
-  Flagged: 'Flagged',
-};
+export enum DataSetStatus {
+  PENDING = 'Pending',
+  Flagged = 'Flagged',
+  APPROVED = 'Approved',
+  REJECTED = 'Rejected',
+}

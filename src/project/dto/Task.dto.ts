@@ -162,6 +162,12 @@ export class CreateTaskDto {
   @Min(1)
   max_dataset_per_reviewer: number;
 
+  @ApiProperty({ required: false, default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_reviewer_per_dataset: number = 1;
+
   @ApiProperty()
   @IsNumber()
   @Min(1)
@@ -198,7 +204,7 @@ export class CreateTaskDto {
   @Min(0)
   contributor_payment_per_microtask: number;
 
-  @ApiProperty()
+  @ApiProperty({})
   @IsNumber()
   @IsOptional()
   @Min(1)
@@ -360,6 +366,30 @@ export class UpdateTaskRequirementDto {
   @IsNumber()
   @Min(1)
   max_contributor_per_micro_task?: number;
+
+  @ApiPropertyOptional({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_micro_task_per_contributor: number;
+
+  @ApiPropertyOptional({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_contributor_per_facilitator?: number;
+
+  @ApiPropertyOptional({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_dataset_per_reviewer?: number;
+
+  @ApiPropertyOptional({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  max_reviewer_per_dataset?: number;
 
   @ApiPropertyOptional({ required: false })
   @IsOptional()
@@ -547,19 +577,123 @@ export class GetTaskMembersFilterDto extends PaginationDto {
 
   @ApiPropertyOptional({
     description: 'User Role on The Task',
-    enum: ['Contributor', 'Reviewer', 'Facilitator'],
+    enum: ['Contributor', 'Reviewer', 'Facilitator', 'QualityAssurance'],
   })
   @IsOptional()
-  @IsEnum(['Contributor', 'Reviewer', 'Facilitator'])
-  role?: 'Contributor' | 'Reviewer' | 'Facilitator';
+  @IsEnum(['Contributor', 'Reviewer', 'Facilitator', 'QualityAssurance'])
+  role?: 'Contributor' | 'Reviewer' | 'Facilitator' | 'QualityAssurance';
+
+  @ApiPropertyOptional({
+    description: 'Order by',
+    enum: [
+      'first_name',
+      'last_name',
+      'email',
+      'phone_number',
+      'created_at',
+      'score',
+    ],
+  })
+  order_by?: string;
+
+  @ApiPropertyOptional({
+    description: 'Order direction',
+    enum: ['ASC', 'DESC'],
+  })
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  order_direction?: 'ASC' | 'DESC';
+}
+
+export class GetEligibleContributorsDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Filter by first name' })
+  @IsOptional()
+  @IsString()
+  first_name?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by middle name' })
+  @IsOptional()
+  @IsString()
+  middle_name?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by last name' })
+  @IsOptional()
+  @IsString()
+  last_name?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by email' })
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by phone number' })
+  @IsOptional()
+  @IsString()
+  phone_number?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by gender (e.g., Male, Female)' })
+  @IsOptional()
+  @IsString()
+  gender?: 'Male' | 'Female';
+
+  @ApiPropertyOptional({
+    description: 'Filter by active status',
+    type: 'boolean',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return Boolean(value); // fallback
+  })
+  @IsBoolean()
+  is_active?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filter by birth date (YYYY-MM-DD)' })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'User Status on The Task',
+    enum: ['Active', 'InActive', 'Flagged'],
+  })
+  @IsOptional()
+  @IsEnum(['Active', 'InActive', 'Flagged'])
+  status?: 'Active' | 'InActive' | 'Flagged';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  referral_code?: string;
+
+  @ApiPropertyOptional({
+    description: 'Order by',
+    enum: [
+      'first_name',
+      'last_name',
+      'email',
+      'phone_number',
+      'created_at',
+      'score',
+    ],
+  })
+  order_by?: string;
+
+  @ApiPropertyOptional({
+    description: 'Order direction',
+    enum: ['ASC', 'DESC'],
+  })
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  order_direction?: 'ASC' | 'DESC';
 }
 export class GetTaskAnAssignedMembersDto extends PaginationDto {
   @ApiProperty({
-    enum: ['Contributor', 'Reviewer', 'Facilitator'],
+    enum: ['Contributor', 'Reviewer', 'Facilitator', 'QualityAssurance'],
     required: false,
   })
-  @IsEnum(['Contributor', 'Reviewer', 'Facilitator'])
-  role: 'Contributor' | 'Reviewer' | 'Facilitator';
+  @IsEnum(['Contributor', 'Reviewer', 'Facilitator', 'QualityAssurance'])
+  role: 'Contributor' | 'Reviewer' | 'Facilitator' | 'QualityAssurance';
 
   @ApiPropertyOptional({ description: 'Filter by first name' })
   @IsOptional()
@@ -599,6 +733,16 @@ export class GetTaskAnAssignedMembersDto extends PaginationDto {
   @IsOptional()
   @IsEnum(['Male', 'Female'])
   gender?: 'Male' | 'Female';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  referral_code?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  facilitator_id_for_referral?: string;
 }
 
 export class UpdateTaskPaymentDto {

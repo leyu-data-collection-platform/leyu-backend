@@ -1,22 +1,22 @@
 import { Injectable } from '@nestjs/common';
-import { DataSetService } from 'src/data_set/service/DataSet.service';
 import { MicroTaskService } from 'src/data_set/service/MicroTask.service';
+import { ReviewerTaskService } from 'src/task_distribution/service/ReviewerTasks.service';
 import { DataSetType } from 'src/utils/constants/Task.constant';
 
 @Injectable()
 export class ReviewerStatistics {
   constructor(
-    private readonly dataSetService: DataSetService,
+    private readonly reviewerTaskService: ReviewerTaskService,
     private readonly microTaskService: MicroTaskService,
   ) {}
   async getReviewStatistics(reviewerId: string) {
-    const textDataSet = await this.dataSetService.countByOptions({
+    const textDataSet = await this.reviewerTaskService.countByOptions({
       reviewer_id: reviewerId,
-      type: DataSetType.TEXT,
+      dataSet: { type: DataSetType.TEXT },
     });
-    const audioDataSet = await this.dataSetService.countByOptions({
+    const audioDataSet = await this.reviewerTaskService.countByOptions({
       reviewer_id: reviewerId,
-      type: DataSetType.AUDIO,
+      dataSet: { type: DataSetType.AUDIO },
     });
     const totalDataSet = textDataSet + audioDataSet;
     return { textDataSet, audioDataSet, totalDataSet };

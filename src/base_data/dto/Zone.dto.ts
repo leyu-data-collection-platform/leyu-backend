@@ -1,13 +1,33 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsOptional, IsString, IsUUID, Validate } from 'class-validator';
+import { AlternativeNamesDto } from './index.dto';
+export class CreateZoneDto {
+  @ApiProperty()
+  @IsString()
+  name: string;
 
-export const createZoneSchema = z.object({
-  name: z.string().min(1),
-  region_id: z.string().uuid(),
-});
-export const updateZoneSchema = z.object({
-  name: z.string().min(4).optional(),
-  region_id: z.string().optional(),
-});
-export class CreateZoneDto extends createZodDto(createZoneSchema) {}
-export class UpdateZoneDto extends createZodDto(updateZoneSchema) {}
+  @ApiProperty()
+  @IsUUID()
+  region_id: string;
+
+  @ApiProperty({ required: false, type: [AlternativeNamesDto] })
+  @IsOptional()
+  @Validate(AlternativeNamesDto)
+  alternative_names?: AlternativeNamesDto[];
+}
+export class UpdateZoneDto {
+  @ApiProperty()
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiProperty()
+  @IsUUID()
+  @IsOptional()
+  region_id?: string;
+
+  @ApiProperty({ required: false, type: [AlternativeNamesDto] })
+  @IsOptional()
+  @Validate(AlternativeNamesDto)
+  alternative_names?: AlternativeNamesDto[];
+}

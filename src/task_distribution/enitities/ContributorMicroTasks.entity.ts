@@ -4,11 +4,10 @@ import {
   CreateDateColumn,
   Entity,
   PrimaryGeneratedColumn,
-  Unique,
 } from 'typeorm';
 
 @Entity({ schema: 'task_distribution', name: 'contributor_micro_tasks' })
-@Unique(['contributor_id', 'task_id'])
+// @Unique(['contributor_id', 'task_id'])
 export class ContributorMicroTasks {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -31,6 +30,7 @@ export class ContributorMicroTasks {
       ContributorMicroTasksConstantStatus.NEW,
       ContributorMicroTasksConstantStatus.IN_PROGRESS,
       ContributorMicroTasksConstantStatus.COMPLETED,
+      ContributorMicroTasksConstantStatus.EXPIRED,
     ],
     default: ContributorMicroTasksConstantStatus.NEW,
   })

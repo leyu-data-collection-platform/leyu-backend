@@ -1,17 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryRunner, Repository } from 'typeorm';
+import { DeleteResult, QueryRunner, Repository } from 'typeorm';
 import { PaginationService } from 'src/common/service/pagination.service';
 import { QueryOptions } from 'src/utils/queryOption.util';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
 import { TaskInstruction } from '../entities/TaskInstruction.entity';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { ReviewerTaskInstruction } from '../entities/ReviewerTaskInstruction.entity';
+import { QATaskInstruction } from '../entities/QATaskInstruction.entity';
 
 @Injectable()
-export class TaskInstructionService {
+export class taskInstructionervice {
   constructor(
     @InjectRepository(TaskInstruction)
     private readonly taskInstructionRepository: Repository<TaskInstruction>,
+
+    @InjectRepository(ReviewerTaskInstruction)
+    private readonly reviewerInstructionRepository: Repository<ReviewerTaskInstruction>,
+
+    @InjectRepository(QATaskInstruction)
+    private readonly qaInstructionRepository: Repository<QATaskInstruction>,
+
     private readonly paginateService: PaginationService<TaskInstruction>,
   ) {
     this.paginateService = new PaginationService<TaskInstruction>(
@@ -35,6 +44,20 @@ export class TaskInstructionService {
       const taskInstruction = manager.create(taskInstructionData);
       return await manager.save(taskInstruction);
     }
+  }
+  async createReviewerInstruction(
+    taskInstructionData: Partial<TaskInstruction>,
+  ): Promise<TaskInstruction> {
+    const taskInstruction =
+      this.reviewerInstructionRepository.create(taskInstructionData);
+    return await this.reviewerInstructionRepository.save(taskInstruction);
+  }
+  async createQAInstruction(
+    taskInstructionData: Partial<TaskInstruction>,
+  ): Promise<TaskInstruction> {
+    const taskInstruction =
+      this.qaInstructionRepository.create(taskInstructionData);
+    return await this.qaInstructionRepository.save(taskInstruction);
   }
 
   async findAll(
@@ -64,22 +87,36 @@ export class TaskInstructionService {
 
   async update(
     id: string,
+    type: 'qa' | 'reviewer' | 'contributor',
     taskInstructionData: Partial<TaskInstruction>,
-    queryRunner?: QueryRunner,
-  ): Promise<TaskInstruction | null> {
-    if (queryRunner) {
-      const manager = queryRunner.manager;
-      await manager.update(TaskInstruction, id, taskInstructionData);
-      return await manager.findOne(TaskInstruction, { where: { id } });
-    } else {
+  ): Promise<
+    TaskInstruction | ReviewerTaskInstruction | QATaskInstruction | null
+  > {
+    if (type == 'contributor') {
       const manager = this.taskInstructionRepository;
+      await manager.update(id, taskInstructionData);
+      return await manager.findOne({ where: { id } });
+    } else if (type == 'reviewer') {
+      const manager = this.reviewerInstructionRepository;
+      await manager.update(id, taskInstructionData);
+      return await manager.findOne({ where: { id } });
+    } else {
+      const manager = this.qaInstructionRepository;
       await manager.update(id, taskInstructionData);
       return await manager.findOne({ where: { id } });
     }
   }
 
-  async remove(id: string): Promise<any> {
-    await this.taskInstructionRepository.delete(id);
-    return;
+  async remove(
+    id: string,
+    type: 'qa' | 'reviewer' | 'contributor',
+  ): Promise<DeleteResult> {
+    if (type == 'contributor') {
+      return await this.taskInstructionRepository.delete(id);
+    } else if (type == 'reviewer') {
+      return await this.reviewerInstructionRepository.delete(id);
+    } else {
+      return await this.qaInstructionRepository.delete(id);
+    }
   }
 }

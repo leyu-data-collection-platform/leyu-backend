@@ -8,6 +8,7 @@ import { FinanceModule } from 'src/finance/finance.module';
 import { TaskDistributionModule } from 'src/task_distribution/task_distribution.module';
 import { ProjectModule } from 'src/project/project.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { ReviewerSubmissionScoringService } from './service/ReviewerSubmissionScoring.service';
 @Module({
   imports: [
     CacheModule,
@@ -18,7 +19,11 @@ import { AuthModule } from 'src/auth/auth.module';
     ProjectModule,
     AuthModule,
   ],
-  providers: [FileUploadProcessor, DatasetConsumer],
+  providers: [
+    FileUploadProcessor,
+    DatasetConsumer,
+    ReviewerSubmissionScoringService,
+  ],
   controllers: [],
   exports: [],
 })

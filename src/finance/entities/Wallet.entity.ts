@@ -17,6 +17,9 @@ export class Wallet {
   @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   balance: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
+  held_balance: number;
+
   @Column({ nullable: true })
   created_by: string;
 
@@ -36,4 +39,8 @@ export class Wallet {
 
   @Column({})
   user_id: string;
+
+  // HMAC-SHA256 of "balance:held_balance" — verified before every write (Requirement 4.x)
+  @Column({ nullable: true })
+  integrity_hash: string;
 }

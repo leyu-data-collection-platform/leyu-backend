@@ -58,6 +58,57 @@ export class RegionService {
       queryOption,
     );
   }
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Region> {
+    const region = await this.regionRepository.findOne({ where: { id } });
+    if (!region) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (region.alternative_names == null) {
+      region.alternative_names = [];
+    }
+    if (region.alternative_names.some((alt) => alt.key === languageKey)) {
+      throw new BadRequestException('Language already exists');
+    }
+    region.alternative_names.push({ key: languageKey, name: alternative_name });
+    return await this.regionRepository.save(region);
+  }
+
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Region> {
+    const annotationType = await this.regionRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.regionRepository.save(annotationType);
+  }
+
   async create(
     regionData: Partial<Region>,
     queryRunner?: QueryRunner,

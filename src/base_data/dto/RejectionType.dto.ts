@@ -1,8 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
-import { createZodDto } from 'nestjs-zod';
+import { IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { z } from 'zod';
+import { LanguageConstants } from 'src/utils/constants/Language.constant';
+import { AlternativeNamesDto } from './index.dto';
+import { Type } from 'class-transformer';
 export class CreateFlagTypeDto extends PaginationDto {
   @ApiPropertyOptional({
     description: 'Flag type name',
@@ -15,14 +16,58 @@ export class CreateFlagTypeDto extends PaginationDto {
   @IsString()
   description?: string;
 }
-export const createRejectionTypeSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-});
 
-export class CreateRejectionTypeDto extends createZodDto(
-  createRejectionTypeSchema,
-) {}
-export class UpdateRejectionTypeDto extends createZodDto(
-  createRejectionTypeSchema,
-) {}
+export class CreateRejectionTypeDto {
+  @ApiPropertyOptional({
+    description: 'Rejection type name',
+    example: 'In appropriate content',
+  })
+  @IsString()
+  name: string;
+
+  @ApiPropertyOptional({ description: 'Rejection description' })
+  @IsString()
+  description: string;
+}
+export class UpdateRejectionTypeDto {
+  @ApiPropertyOptional({
+    description: 'Rejection type name',
+    example: 'In appropriate content',
+  })
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiPropertyOptional({ description: 'Rejection description' })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alternative names',
+    type: [AlternativeNamesDto],
+  })
+  @Type(() => AlternativeNamesDto) //
+  @ValidateNested({ each: true })
+  @IsOptional()
+  alternative_names?: AlternativeNamesDto[];
+}
+
+export class AddLanguageDto {
+  @ApiPropertyOptional({
+    description: 'Language key',
+    example: 'en',
+    enum: LanguageConstants,
+  })
+  @IsEnum(LanguageConstants)
+  language_key: LanguageConstants;
+
+  @ApiPropertyOptional({
+    description: 'Alternative names',
+    type: [AlternativeNamesDto],
+  })
+  @Type(() => AlternativeNamesDto) //
+  @ValidateNested({ each: true })
+  @IsOptional()
+  alternative_names?: AlternativeNamesDto[];
+}

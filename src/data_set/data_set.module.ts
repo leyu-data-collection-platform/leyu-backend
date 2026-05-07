@@ -10,7 +10,7 @@ import { MicroTaskService } from './service/MicroTask.service';
 import { RejectionReasonService } from './service/RejectionReason.service';
 import { DataSetController } from './controller/DataSet.controller';
 import { MicroTaskController } from './controller/MicroTask.controller';
-import { RejectionReasonController } from './controller/RejectionReason.controller';
+// import { RejectionReasonController } from './controller/RejectionReason.controller';
 import { AuthModule } from 'src/auth/auth.module';
 import { FlagReasonService } from './service/FlagReason.service';
 import { FlagReason } from './entities/FlagReason.entity';
@@ -39,8 +39,8 @@ import { CacheModule } from 'src/cache/cache.module';
   controllers: [
     DataSetController,
     MicroTaskController,
-    RejectionReasonController,
+    // RejectionReasonController,
   ],
-  exports: [MicroTaskService, DataSetService],
+  exports: [MicroTaskService, DataSetService, RejectionReasonService],
 })
 export class DataSetModule {}

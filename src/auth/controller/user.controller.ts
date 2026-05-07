@@ -13,7 +13,6 @@ import {
   Put,
   Patch,
   ParseUUIDPipe,
-  NotFoundException,
   ValidationPipe,
 } from '@nestjs/common';
 import { UserService } from '../service/User.service';
@@ -28,9 +27,11 @@ import {
   GetContributorFilterDto,
   UpdateProfileDto,
   UpdateUserDto,
+  UpdatePreferredLanguageDto,
+  UpdateReferralCode,
+  UserExistDto,
   // findUserQuerySchema,
 } from '../dto/User.dto';
-// import { ZodValidationPipe } from 'src/helpers/zodValidationPipe';
 import {
   Between,
   DataSource,
@@ -48,6 +49,8 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
+import { Throttle } from '@nestjs/throttler';
+// import { OtpThrottlerGuard } from 'src/auth/guard/otp-throttler.guard';
 
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -112,6 +115,8 @@ export class UsersController {
   }
 
   @Post('sign-up')
+  // @UseGuards(OtpThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 6000 } })
   async SignUp(@Body() body: SignUpDto) {
     try {
       const user = await this.usersService.signUp(body.phone_number);
@@ -125,15 +130,93 @@ export class UsersController {
   async verifyUser(@Param('id') id: string, @Body() body: VerifyAccountDto) {
     return this.usersService.verifyAccount(id, body.code, body.phone);
   }
-  @Patch('')
+
+  @Patch('preferred-language')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  async updatedPreferredLanguage(
+    @Body() body: UpdatePreferredLanguageDto,
+    @Request() req,
+  ) {
+    const user = req.user;
+    return this.usersService.updatedPreferredLanguage(
+      user.id,
+      body.language_key,
+    );
+  }
+  @Patch('')
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        national_id: {
+          type: 'string',
+          format: 'binary',
+        },
+        first_name: {
+          type: 'string',
+        },
+        middle_name: {
+          type: 'string',
+        },
+        last_name: {
+          type: 'string',
+        },
+        email: {
+          type: 'string',
+        },
+        password: {
+          type: 'string',
+        },
+        birth_date: {
+          type: 'string',
+          format: 'date',
+        },
+        gender: {
+          type: 'string',
+          enum: ['Male', 'Female'],
+        },
+        city: {
+          type: 'string',
+        },
+        woreda: {
+          type: 'string',
+        },
+        dialect_id: {
+          type: 'string',
+        },
+        language_id: {
+          type: 'string',
+        },
+        regional_id: {
+          type: 'string',
+        },
+        zone_id: {
+          type: 'string',
+        },
+        referral_code: {
+          type: 'string',
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('national_id', { storage: multerImageS3Storage }),
+  )
   async firstUpdate(
+    @UploadedFile() file: any,
     @Body()
     body: FirstContributorUpdateDto,
     @Request() req,
   ) {
     const user_id = req.user.id;
-    return this.usersService.firstUpdate(user_id, body);
+    let national_id = undefined;
+    const file_key = file?.key ?? undefined;
+    if (file_key) {
+      national_id = file_key;
+    }
+    return this.usersService.firstUpdate(user_id, { ...body, national_id });
   }
 
   @Get('me')
@@ -141,24 +224,14 @@ export class UsersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   async findMe(@Request() req): Promise<UserSanitize> {
     const id = req.user.id; // Assuming the user ID is stored in the request object
-    const user = await this.usersService.findOne({
-      where: { id },
-      relations: {
-        role: true,
-        wallet: true,
-        dialect: true,
-        language: true,
-        region: true,
-        zone: true,
-      },
-    });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-    const profile_picture = user.profile_picture
-      ? await this.fileService.getPreSignedUrl(user.profile_picture)
-      : '';
-    return UserSanitize.from({ ...user, profile_picture });
+    return this.usersService.getUserProfile(id);
+  }
+  @Get('my-score')
+  @ApiResponse({ status: 200 })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async getMyScore(@Request() req): Promise<{ score: number }> {
+    const id = req.user.id; // Assuming the user ID is stored in the request object
+    return this.usersService.getMyScore(id);
   }
 
   @Get('all')
@@ -386,15 +459,7 @@ export class UsersController {
       result: data.result.map((item) => UserSanitize.from(item)),
     };
   }
-  @Get('/:id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne({
-      where: { id },
-      select: { ...UserSanitizedFields, role: RoleSanitizedFields },
-    });
-  }
+
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
@@ -532,9 +597,41 @@ export class UsersController {
       return 'file not found';
     }
   }
+
+  @Patch('national_id')
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('image', { storage: multerImageS3Storage }))
+  async updateNationalIdInage(@UploadedFile() file: any, @Request() request) {
+    const file_key = file.key;
+    const user_id = request.user.id;
+    if (file_key) {
+      return await this.usersService.uploadNationalId(user_id, file_key);
+    } else {
+      return 'file not found';
+    }
+  }
+  @Patch('referral_code')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async updateReferralCode(@Body() body: UpdateReferralCode, @Request() req) {
+    const user = req.user;
+    return this.usersService.updateReferralCode(user.id, body.referral_code);
+  }
+
   @Put('change-password')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  async achangePassword(@Body() body: ChangePasswordDto, @Request() req) {
+  async changePassword(@Body() body: ChangePasswordDto, @Request() req) {
     const user = req.user;
     await this.activityLogService.create({
       user_id: req.user.id,
@@ -573,6 +670,25 @@ export class UsersController {
     return this.usersService.update(id, {
       ...userData,
       updated_by: request.user.id,
+    });
+  }
+  @Get('/exist')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
+  async validateIfUserAlreadyExist(@Query() data: UserExistDto) {
+    const exist = await this.usersService.validateIfUserAlreadyExist(
+      data.email,
+      data.role_id,
+    );
+    return { exist };
+  }
+  @Get('/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  findOne(@Param('id') id: string) {
+    return this.usersService.findOne({
+      where: { id },
+      select: { ...UserSanitizedFields, role: RoleSanitizedFields },
     });
   }
 }

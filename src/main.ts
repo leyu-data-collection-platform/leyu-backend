@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { patchNestJsSwagger } from 'nestjs-zod';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { GlobalResponseInterceptor } from './common/interceptors/global-response.interceptor';
 import { CustomValidationPipe } from './utils/CustomValidationPipe';
@@ -9,7 +8,8 @@ import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
-import {  Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
+// import {  } from '@nestjs/throttler';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -18,8 +18,6 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
   app.useGlobalPipes(new CustomValidationPipe());
-
-  patchNestJsSwagger();
   const config = new DocumentBuilder()
     .setTitle('Leyu API')
     .setDescription('Leyu Api documentation')
@@ -40,11 +38,10 @@ async function bootstrap() {
   app.useGlobalInterceptors(new GlobalResponseInterceptor());
   app.setGlobalPrefix('api');
 
-
   // Create your queues
   const myQueue = new Queue('file-upload', {
     connection: {
-      host:  configService.get<string>('REDIS_HOST'), 
+      host: configService.get<string>('REDIS_HOST'),
       port: Number(configService.get<string>('REDIS_PORT') || '6379'),
     },
   });
@@ -60,15 +57,14 @@ async function bootstrap() {
   app.use('/admin/queues', serverAdapter.getRouter());
 
   await app.listen(process.env.PORT ?? 3000);
-  
+
   Logger.log(`🚀 Leyu Api  is running on port ${port}`);
   Logger.log(`📦 Environment: ${environment}`);
   Logger.log(`🌐 CORS enabled for origin: ${corsOrigin}`);
-  Logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  Logger.log(`📚 Swagger documentation: http://localhost:${port}/doc`);
   Logger.log(`💾 Database: ${configService.get<string>('DATABASE_URL')}`);
   Logger.log(`📦 Redis: ${configService.get<string>('REDIS_URL')}`);
   Logger.log(`📦 RabbitMQ: ${configService.get<string>('RABBITMQ_URI')}`);
   Logger.log(`📦 Minio: ${configService.get<string>('MINIO_ENDPOINT')}`);
-
 }
 bootstrap();

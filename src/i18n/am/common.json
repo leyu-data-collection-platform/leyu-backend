@@ -1,0 +1,6 @@
+{
+    "new_task_notification_title":"አዲስ ተግባር ተመዝግቧል",
+    "new_task_notification_message":"አዲስ ተግባር ተመድቦልዎታል፦ {taskTitle}። ለዝርዝሮች እባክዎ ዳሽቦርድዎን ያረጋግጡ።",
+    "task_rejected_notification_title":"ተግባር ውድቅ ተደርጓል",
+    "task_rejected_notification_message":"በ ኮድ { taskCode} ተግባር: {taskTitle} ላይ ያስገቡት ስራ ውድቅ ተደርጓል. እባክዎ እንደገና ይሞክሩ።"
+}

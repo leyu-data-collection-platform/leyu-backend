@@ -44,6 +44,56 @@ export class ZoneService {
     );
   }
 
+  async addAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Zone> {
+    const zone = await this.zoneRepository.findOne({ where: { id } });
+    if (!zone) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (zone.alternative_names == null) {
+      zone.alternative_names = [];
+    }
+    if (zone.alternative_names.some((alt) => alt.key === languageKey)) {
+      throw new BadRequestException('Language already exists');
+    }
+    zone.alternative_names.push({ key: languageKey, name: alternative_name });
+    return await this.zoneRepository.save(zone);
+  }
+  async updateAlternativeName(
+    id: string,
+    languageKey: string,
+    alternative_name: string,
+  ): Promise<Zone> {
+    const annotationType = await this.zoneRepository.findOne({
+      where: { id },
+    });
+    if (!annotationType) {
+      throw new BadRequestException('Annotation Type not found');
+    }
+    if (annotationType.alternative_names == null) {
+      annotationType.alternative_names = [];
+    }
+    if (
+      annotationType.alternative_names.some((alt) => alt.key === languageKey)
+    ) {
+      annotationType.alternative_names = annotationType.alternative_names.map(
+        (alt) =>
+          alt.key === languageKey
+            ? { key: languageKey, name: alternative_name }
+            : alt,
+      );
+    } else {
+      annotationType.alternative_names.push({
+        key: languageKey,
+        name: alternative_name,
+      });
+    }
+    return await this.zoneRepository.save(annotationType);
+  }
+
   async create(zone: Partial<Zone>, queryRunner?: QueryRunner): Promise<Zone> {
     const region = await this.regionService.findOne({ id: zone.region_id });
     const zoneBefore = await this.zoneRepository.findOne({

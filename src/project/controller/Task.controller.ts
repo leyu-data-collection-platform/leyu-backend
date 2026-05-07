@@ -35,6 +35,7 @@ import {
   GetTaskAnAssignedMembersDto,
   GetTaskDto,
   GetTaskMembersFilterDto,
+  GetEligibleContributorsDto,
   ImportContributorFromOtherTaskDto,
   UpdateTaskDto,
   UpdateTaskInstructionDto,
@@ -42,7 +43,6 @@ import {
   UpdateTaskRequirementDto,
 } from '../dto/Task.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/decorators/roles.enum';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
@@ -51,6 +51,7 @@ import {
   ActivateToggleDto,
   AssignContributorToFacilitatorToTaskDto,
   AssignContributorToTaskDto,
+  AssignQAToTaskDto,
   AssignUserToTaskDto,
 } from '../dto/UserTask.dto';
 import { DataSource, FindOptionsWhere, ILike } from 'typeorm';
@@ -67,6 +68,7 @@ import { UserTask } from '../entities/UserTask.entity';
 import { User } from 'src/auth/entities/User.entity';
 import { Task } from '../entities/Task.entity';
 import { TaskServiceHelperService } from '../service/TaskServiceHelper.service';
+import { TaskMembersListResponseDto } from '../rto/Task.rto';
 @Controller('/project-mgmt/task')
 @ApiTags('Task')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -143,12 +145,61 @@ export class TaskController {
   ) {
     let image_instruction_url = '';
     image_instruction_url = file?.key ?? '';
-    return this.taskService.addTaskInstructions({
-      ...instructionData,
-      task_id: id,
-      image_instruction_url: image_instruction_url,
-      created_by: req.user.id,
-    });
+    return this.taskService.addtaskInstruction(
+      {
+        ...instructionData,
+        task_id: id,
+        image_instruction_url: image_instruction_url,
+        created_by: req.user.id,
+      },
+      'contributor',
+    );
+  }
+
+  @Post('/:id/add-reviewer-instruction')
+  @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
+  @UseInterceptors(FileInterceptor('image', { storage: multerImageS3Storage }))
+  async addReviewerTaskInstruction(
+    @UploadedFile() file: any,
+    @Param('id') id: string,
+    @Body()
+    instructionData: CreateTaskInstructionDto,
+    @Request() req,
+  ) {
+    let image_instruction_url = '';
+    image_instruction_url = file?.key ?? '';
+    return this.taskService.addtaskInstruction(
+      {
+        ...instructionData,
+        task_id: id,
+        image_instruction_url: image_instruction_url,
+        created_by: req.user.id,
+      },
+      'reviewer',
+    );
+  }
+
+  @Post('/:id/add-qa-instruction')
+  @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
+  @UseInterceptors(FileInterceptor('image', { storage: multerImageS3Storage }))
+  async addQATaskInstruction(
+    @UploadedFile() file: any,
+    @Param('id') id: string,
+    @Body()
+    instructionData: CreateTaskInstructionDto,
+    @Request() req,
+  ) {
+    let image_instruction_url = '';
+    image_instruction_url = file?.key ?? '';
+    return this.taskService.addtaskInstruction(
+      {
+        ...instructionData,
+        task_id: id,
+        image_instruction_url: image_instruction_url,
+        created_by: req.user.id,
+      },
+      'qa',
+    );
   }
   @Post('/:id/assign-facilitator')
   @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
@@ -161,7 +212,7 @@ export class TaskController {
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
-      await Promise.all(
+      const membersCreated = await Promise.all(
         taskData.emails.map(async (email) => {
           return this.taskService.assignFacilitator(
             { email, task_id: id },
@@ -169,6 +220,7 @@ export class TaskController {
           );
         }),
       );
+      console.error('Members Created ', membersCreated);
       await queryRunner.commitTransaction();
       return 'Facilitators assigned successfully';
     } catch (error) {
@@ -250,6 +302,40 @@ export class TaskController {
       }
     }
   }
+
+  @Post('/:id/assign-qa')
+  @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
+  async assignQA(
+    @Param('id') id: string,
+    @Body()
+    body: AssignQAToTaskDto,
+  ) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      console.warn('body', body);
+      const userTask = await this.taskService.assignQA(
+        id,
+        body.qa_ids,
+        queryRunner,
+      );
+      await queryRunner.commitTransaction();
+      return userTask;
+    } catch (error) {
+      if (queryRunner) await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      if (queryRunner) {
+        try {
+          await queryRunner.release();
+        } catch (releaseError) {
+          console.error('Error releasing queryRunner:', releaseError);
+        }
+      }
+    }
+  }
+
   @Post('/:id/assign-contributor-to-facilitator')
   @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   async assingContributorToFacilitator(
@@ -267,18 +353,14 @@ export class TaskController {
         body.contributor_ids,
         queryRunner,
       );
-      console.log('userTask', userTask);
-      console.log('Commiting query transaction');
       await queryRunner.commitTransaction();
       return userTask;
     } catch (error) {
-      console.log('Rollbacking query transaction');
       await queryRunner.rollbackTransaction();
       throw error;
     } finally {
       if (queryRunner) {
         try {
-          console.log('Releasing query transaction');
           await queryRunner.release();
         } catch (releaseError) {
           console.error('Error releasing queryRunner:', releaseError);
@@ -287,22 +369,6 @@ export class TaskController {
     }
   }
 
-  // @Get('contributor-tasks')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(Role.CONTRIBUTOR)
-  // @ApiProperty({description:'Get all tasks that a contributor submitted datasets to'})
-  // @ApiResponse({ status: 200, description:'Success' })
-  // async getContributorSubmissions(
-  //   @Query() paginationDto: PaginationDto,
-  //   @Request() req,
-  // ): Promise<any> {
-  //   const user = req.user;
-  //   const contributor_id = user.id;
-  //   return this.taskService.getContributorSubmissions(
-  //     contributor_id,
-  //     paginationDto,
-  //   );
-  // }
   @Get('contributor-tasks')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CONTRIBUTOR)
@@ -316,7 +382,7 @@ export class TaskController {
   ): Promise<any> {
     const user = req.user;
     const contributor_id = user.id;
-    return this.taskService.getContributorSubmissionsV2(
+    return this.taskService.getContributorSubmissions(
       contributor_id,
       paginationDto,
     );
@@ -326,39 +392,61 @@ export class TaskController {
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   async getContributorByTaskRequirementPaginate(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Query() searchSchema: GetTaskMembersFilterDto,
+    @Query() searchSchema: GetEligibleContributorsDto,
   ) {
     let search: string | undefined = searchSchema.search;
     const page = searchSchema.page;
     const limit = searchSchema.limit;
     // Clean up
+    // Clean up
     delete searchSchema.page;
     delete searchSchema.limit;
+    delete searchSchema.search;
     searchSchema.search = undefined;
-
     const baseFilters: FindOptionsWhere<User> = {};
     const searchFilters: FindOptionsWhere<User>[] = [];
 
     // Build exact match filters from searchSchema
-    for (const [key, value] of Object.entries(searchSchema)) {
-      if (value !== undefined && value !== null) {
-        if (['is_active', 'role_id', 'gender'].includes(key)) {
-          baseFilters[key] = value;
-        } else {
-          baseFilters[key] = ILike(`%${value}%`);
-        }
-      }
+    if (searchSchema.email) {
+      baseFilters['email'] = ILike(`%${searchSchema.email}%`);
     }
-
-    // Build search filter if applicable
+    if (searchSchema.first_name) {
+      baseFilters['first_name'] = ILike(`%${searchSchema.first_name}%`);
+    }
+    if (searchSchema.gender) {
+      baseFilters['gender'] = searchSchema.gender;
+    }
+    if (searchSchema.last_name) {
+      baseFilters['last_name'] = ILike(`%${searchSchema.last_name}%`);
+    }
+    if (searchSchema.middle_name) {
+      baseFilters['middle_name'] = ILike(`%${searchSchema.middle_name}%`);
+    }
+    if (searchSchema.phone_number) {
+      baseFilters['phone_number'] = ILike(`%${searchSchema.phone_number}%`);
+    }
+    // if(searchSchema.role){
+    //   baseFilters['role'] = { name: searchSchema.role };
+    // }
+    if (searchSchema.email) {
+      baseFilters['email'] = ILike(`%${searchSchema.email}%`);
+    }
     if (search) {
       search = search.trim();
       searchFilters.push(
         { ...baseFilters, email: ILike(`%${search}%`) },
         { ...baseFilters, first_name: ILike(`%${search}%`) },
         { ...baseFilters, last_name: ILike(`%${search}%`) },
+        { ...baseFilters, middle_name: ILike(`%${search}%`) },
         { ...baseFilters, phone_number: ILike(`%${search}%`) },
       );
+    }
+    if (searchSchema.referral_code) {
+      baseFilters['receivedReferral'] = {
+        referrer: {
+          referral_code: searchSchema.referral_code,
+        },
+      };
     }
     const query: QueryOptions<User> = {
       relations: { role: true, region: true, zone: true },
@@ -374,7 +462,6 @@ export class TaskController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   async findPaginate(@Query() searchSchema: GetTaskDto, @Request() req) {
     const user_id = req.user.id;
     const page = searchSchema.page;
@@ -408,7 +495,6 @@ export class TaskController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   async findArchivedPaginate(
     @Query() searchSchema: GetTaskDto,
     @Request() req,
@@ -446,14 +532,13 @@ export class TaskController {
   @Roles(Role.REVIEWER)
   async findReviewerTasks(@Query() paginateDto: PaginationDto, @Request() req) {
     const user_id = req.user.id;
-    return this.taskService.findReviewerTasks(user_id, paginateDto);
+    return this.taskService.getReviewerTasks(user_id, paginateDto);
   }
   @Get('facilitator_tasks')
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FACILITATOR)
-  @UsePipes(new ZodValidationPipe())
   async findFacilitatorTasks(
     @Query() paginateDto: PaginationDto,
     @Request() req,
@@ -465,7 +550,6 @@ export class TaskController {
   @Get('related-task-type/:task_id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN, Role.PROJECT_MANAGER, Role.ADMIN)
-  @UsePipes(new ZodValidationPipe())
   async findCompatibleTaskForImportMicroTask(
     @Param('task_id') task_id: string,
   ) {
@@ -510,9 +594,6 @@ export class TaskController {
     // Clean up
     delete searchSchema.page;
     delete searchSchema.limit;
-
-    console.log('searchSchema', searchSchema);
-
     const baseFilters: FindOptionsWhere<Task> = {
       project_id: id,
       is_archived: false,
@@ -577,63 +658,14 @@ export class TaskController {
 
   @Get(':id/members')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER, Role.QA)
+  @ApiResponse({ type: [TaskMembersListResponseDto] })
   async findTaskMembers(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query()
     searchSchema: GetTaskMembersFilterDto,
   ) {
-    let search: string | undefined = searchSchema.search;
-    const page = searchSchema.page;
-    const limit = searchSchema.limit;
-    let userTaskFilters: FindOptionsWhere<UserTask> = {};
-
-    // Clean up
-    delete searchSchema.page;
-    delete searchSchema.limit;
-    delete searchSchema.search;
-    if (searchSchema.status) {
-      userTaskFilters = { ...userTaskFilters, status: searchSchema.status };
-    }
-    if (searchSchema.role) {
-      userTaskFilters = { ...userTaskFilters, role: searchSchema.role };
-    }
-    delete searchSchema.status;
-    delete searchSchema.role;
-
-    const baseFilters: FindOptionsWhere<User> = {};
-    const searchFilters: FindOptionsWhere<User>[] = [];
-
-    // Build exact match filters from searchSchema
-    for (const [key, value] of Object.entries(searchSchema)) {
-      if (value !== undefined && value !== null) {
-        if (['is_active', 'gender'].includes(key)) {
-          baseFilters[key] = value;
-        } else {
-          baseFilters[key] = ILike(`%${value}%`);
-        }
-      }
-    }
-    // Build search filter if applicable
-    if (search) {
-      search = search.trim();
-      searchFilters.push(
-        { ...baseFilters, email: ILike(`%${search}%`) },
-        { ...baseFilters, first_name: ILike(`%${search}%`) },
-        { ...baseFilters, last_name: ILike(`%${search}%`) },
-        { ...baseFilters, phone_number: ILike(`%${search}%`) },
-      );
-    }
-
-    const query: FindOptionsWhere<User> | FindOptionsWhere<User>[] = search
-      ? searchFilters
-      : baseFilters;
-    return this.taskService.findPaginateTaskMembers(
-      id,
-      userTaskFilters,
-      query,
-      { page: page, limit: limit },
-    );
+    return this.taskService.getTaskMembers(id, searchSchema);
   }
   @Get(':id/members/all')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -758,26 +790,28 @@ export class TaskController {
     return this.taskService.updateTaskPayment(id, updateData);
   }
 
-  @Put(':id/instruction')
+  @Put(':task_id/instruction/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async updateTaskInstruction(
+    @Param('task_id', new ParseUUIDPipe()) task_id: string,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() updateData: UpdateTaskInstructionDto,
     @Request() req,
   ) {
-    return this.taskService.updateInstruction(id, updateData);
+    return this.taskService.updateInstruction(task_id, id, updateData);
   }
 
-  @Delete(':id/instruction')
+  @Delete(':task_id/instruction/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER)
   async deleteTaskInstruction(
+    @Param('task_id', new ParseUUIDPipe()) task_id: string,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Request() req,
   ) {
-    return this.taskService.deleteInstruction(id);
+    return this.taskService.deleteInstruction(task_id, id);
   }
 
   @Put(':id/requirement')
@@ -840,7 +874,6 @@ export class TaskController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UsePipes(new ZodValidationPipe())
   async remove(@Param('id', new ParseUUIDPipe()) id: string, @Request() req) {
     const deletee = await this.taskService.remove(id);
     await this.activityLogService.create({
@@ -878,24 +911,57 @@ export class TaskController {
     const searchFilters: FindOptionsWhere<User>[] = [];
 
     // Build exact match filters from searchSchema
-    for (const [key, value] of Object.entries(searchSchema)) {
-      if (value !== undefined && value !== null && key !== 'role') {
-        if (['is_active', 'gender'].includes(key)) {
-          baseFilters[key] = value;
-        } else {
-          baseFilters[key] = ILike(`%${value}%`);
-        }
-      }
+    if (searchSchema.email) {
+      baseFilters['email'] = ILike(`%${searchSchema.email}%`);
     }
-    // Build search filter if applicable
+    if (searchSchema.first_name) {
+      baseFilters['first_name'] = ILike(`%${searchSchema.first_name}%`);
+    }
+    if (searchSchema.gender) {
+      baseFilters['gender'] = searchSchema.gender;
+    }
+    if (searchSchema.last_name) {
+      baseFilters['last_name'] = ILike(`%${searchSchema.last_name}%`);
+    }
+    if (searchSchema.middle_name) {
+      baseFilters['middle_name'] = ILike(`%${searchSchema.middle_name}%`);
+    }
+    if (searchSchema.phone_number) {
+      baseFilters['phone_number'] = ILike(`%${searchSchema.phone_number}%`);
+    }
+    // if(searchSchema.role){
+    //   baseFilters['role'] = { name: searchSchema.role };
+    // }
+    if (searchSchema.email) {
+      baseFilters['email'] = ILike(`%${searchSchema.email}%`);
+    }
     if (search) {
       search = search.trim();
       searchFilters.push(
         { ...baseFilters, email: ILike(`%${search}%`) },
         { ...baseFilters, first_name: ILike(`%${search}%`) },
+        { ...baseFilters, last_name: ILike(`%${search}%`) },
         { ...baseFilters, middle_name: ILike(`%${search}%`) },
         { ...baseFilters, phone_number: ILike(`%${search}%`) },
       );
+    }
+    if (searchSchema.referral_code) {
+      baseFilters['receivedReferral'] = {
+        referrer: {
+          referral_code: searchSchema.referral_code,
+        },
+      };
+    }
+    if (searchSchema.facilitator_id_for_referral) {
+      baseFilters['receivedReferral'] = {
+        referrer_id: searchSchema.facilitator_id_for_referral,
+      };
+      searchFilters.filter((filter) => {
+        filter['receivedReferral'] = {
+          referrer_id: searchSchema.facilitator_id_for_referral,
+        };
+        return filter;
+      });
     }
 
     const query: FindOptionsWhere<User> | FindOptionsWhere<User>[] = search
@@ -909,14 +975,16 @@ export class TaskController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.PROJECT_MANAGER, Role.FACILITATOR)
-  async findOne(@Param('id', new ParseUUIDPipe()) id: string, @Request() req) {
+  async getTask(@Param('id', new ParseUUIDPipe()) id: string, @Request() req) {
     const task = await this.taskService.findOne({
       where: { id },
       relations: {
         language: true,
         taskType: true,
         taskRequirement: true,
-        taskInstructions: true,
+        taskInstruction: true,
+        reviewerInstruction: true,
+        qaInstruction: true,
         payment: true,
       },
     });

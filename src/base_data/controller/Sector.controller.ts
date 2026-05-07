@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   UseGuards,
   Request,
   NotFoundException,
@@ -23,11 +22,12 @@ import {
 import { SectorService } from '../service';
 import { CreateSectorDto, UpdateSectorDto } from '../dto/Sector.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { SectorSanitized } from '../sanitize';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/sector')
 @ApiTags('Sector')
 @ApiBearerAuth()
@@ -36,7 +36,7 @@ export class SectorController {
   constructor(private readonly sectorService: SectorService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
+  @Roles(Role.SUPER_ADMIN)
   async create(@Body() sectorDto: CreateSectorDto, @Request() req) {
     return this.sectorService.create(sectorDto);
   }
@@ -72,13 +72,18 @@ export class SectorController {
   @ApiResponse({
     type: [SectorSanitized],
   })
-  async findAll(@Query() query: UpdateSectorDto): Promise<SectorSanitized[]> {
+  async findAll(
+    @Query() query: UpdateSectorDto,
+    @Request() req,
+  ): Promise<SectorSanitized[]> {
     const sectors = await this.sectorService.findMany(query);
-    return sectors.map((item) => SectorSanitized.from(item));
+    const user = req.user;
+    return sectors.map((item) =>
+      SectorSanitized.from(item, user.preferred_language),
+    );
   }
 
   @Get(':id')
-  @UsePipes(new ZodValidationPipe())
   async findOne(@Param('id') id: string) {
     const sector = await this.sectorService.findOne({ id });
     if (!sector) {
@@ -88,7 +93,7 @@ export class SectorController {
   }
 
   @Put(':id')
-  @UsePipes(new ZodValidationPipe())
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() sectorData: UpdateSectorDto,
@@ -96,6 +101,30 @@ export class SectorController {
   ) {
     return this.sectorService.update(id, sectorData);
   }
+
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id', ParseIntPipe) id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   const sectorId = parseInt(id);
+  //   return this.sectorService.addAlternativeName(
+  //     sectorId,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+
+  // @Put('update-alternative-name/:id')
+  // async updateAlternativeName(
+  //   @Param('id', ParseIntPipe) id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   const sectorId = parseInt(id);
+  //   return this.sectorService.updateAlternativeName(sectorId,addLanguage.language_key,addLanguage.alternative_name);
+  // }
 
   @Delete(':id')
   async delete(@Param('id') id: string) {

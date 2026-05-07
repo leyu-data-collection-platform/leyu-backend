@@ -154,14 +154,22 @@ export class MicroTaskService {
         can_retry: can_retry,
       });
     }
-    if (task.taskType.task_type === taskTypes.AUDIO_TO_TEXT) {
+    if (
+      [taskTypes.AUDIO_TO_TEXT, taskTypes.IMAGE_TO_AUDIO].includes(
+        task.taskType.task_type,
+      )
+    ) {
       for (const microTask of micro_task_data_sets) {
         microTask.file_path = await this.fileService.getPreSignedUrl(
           microTask.file_path,
         );
       }
     }
-    if (task.taskType.task_type === taskTypes.TEXT_TO_AUDIO) {
+    if (
+      [taskTypes.TEXT_TO_AUDIO, taskTypes.IMAGE_TO_AUDIO].includes(
+        task.taskType.task_type,
+      )
+    ) {
       for (const microTask of micro_task_data_sets) {
         for (const dataSet of microTask.dataSets) {
           dataSet.file_path = await this.fileService.getPreSignedUrl(
@@ -263,6 +271,52 @@ export class MicroTaskService {
     }
     microTaskData.code = await this.generateCode();
     microTaskData.type = 'audio';
+    if (queryRunner) {
+      const manager = queryRunner.manager;
+      const microTask = manager.create(MicroTask, microTaskData);
+      return await manager.save(MicroTask, microTask);
+    } else {
+      const manager = this.microTaskRepository;
+      const microTask = manager.create(microTaskData);
+      return await manager.save(microTask);
+    }
+  }
+
+  /**
+   * @brief: Create an image microtask
+   * @param: microtaskData: Partial<Microtask>
+   * @param: queryRunner: QueryRunner
+   * @return: Promise<Microtask>
+   * @throws: new NotFoundException if the task is not found
+   * @throws: new BadRequestException if the task type is not audio
+   **/
+  async createImageMicroTask(
+    microTaskData: Partial<MicroTask>,
+    queryRunner?: QueryRunner,
+  ): Promise<MicroTask> {
+    const task: Task | null = await this.taskService.findOne({
+      where: { id: microTaskData.task_id },
+      relations: { taskType: true },
+    });
+    if (!task) {
+      throw new NotFoundException(`Task not found`);
+    }
+    if (microTaskData.is_test === true) {
+      if (!task.require_contributor_test) {
+        throw new BadRequestException(
+          'Contributor test is not required for this task',
+        );
+      }
+    }
+    const task_type = task.taskType?.task_type || '';
+    if (
+      task_type !== taskTypes.IMAGE_TO_TEXT &&
+      task_type !== taskTypes.IMAGE_TO_AUDIO
+    ) {
+      throw new BadRequestException(`Invalid task type`);
+    }
+    microTaskData.code = await this.generateCode();
+    microTaskData.type = 'image';
     if (queryRunner) {
       const manager = queryRunner.manager;
       const microTask = manager.create(MicroTask, microTaskData);
@@ -425,7 +479,11 @@ export class MicroTaskService {
       }
       // Add dialect to the query option
       if (
-        [taskTypes.AUDIO_TO_TEXT].indexOf(task.taskType?.task_type || '') !== -1
+        [
+          taskTypes.AUDIO_TO_TEXT,
+          taskTypes.IMAGE_TO_TEXT,
+          taskTypes.IMAGE_TO_AUDIO,
+        ].indexOf(task.taskType?.task_type || '') !== -1
       ) {
         microTaskTypeIsFile = true;
       }
@@ -593,7 +651,7 @@ export class MicroTaskService {
     created_by: string,
     queryRunner: QueryRunner,
     limit?: number,
-  ): Promise<MicroTask[]> {
+  ): Promise<string> {
     const source_task: Task | null = await this.taskService.findOne({
       where: { id: source_task_id },
       relations: { taskType: true },
@@ -617,18 +675,33 @@ export class MicroTaskService {
         `Task type mismatch between source task and target task`,
       );
     }
-    let microTasks: MicroTask[] = await this.microTaskRepository.find({
+    let sourceMicroTasks: MicroTask[] = await this.microTaskRepository.find({
       where: { task_id: source_task_id },
     });
-    if (microTasks.length === 0) {
+    const targetMicroTasks = await this.microTaskRepository.find({
+      where: { task_id: task_id },
+    });
+    if (sourceMicroTasks.length === 0) {
       throw new NotFoundException(`No micro tasks found in source task`);
     }
     if (limit && limit > 0) {
-      microTasks = microTasks.slice(0, limit);
+      sourceMicroTasks = sourceMicroTasks.slice(0, limit);
+    }
+    const derivedIds = new Set(
+      targetMicroTasks.map((m) => m.derived_from_microtask_id),
+    );
+
+    const newMicroTasks = sourceMicroTasks.filter(
+      (microTask) => !derivedIds.has(microTask.id),
+    );
+    if (newMicroTasks.length === 0) {
+      throw new BadRequestException(
+        `All micro tasks already exist in target task`,
+      );
     }
     const manager = queryRunner.manager;
     const microtasks = await Promise.all(
-      microTasks.map(async (microTask: MicroTask) => {
+      newMicroTasks.map(async (microTask: MicroTask) => {
         microTask.task_id = task_id;
         microTask.code = await this.generateCode();
         return await manager.save(MicroTask, {
@@ -640,11 +713,14 @@ export class MicroTaskService {
           file_path: microTask.file_path,
           type: microTask.type,
           created_by: created_by,
+          derived_from_microtask_id: microTask.id,
+          category: microTask.category,
+          intent: microTask.intent,
         });
       }),
     );
 
-    return microtasks;
+    return `${microtasks.length} micro tasks imported from ${source_task.name} to ${task.name}`;
   }
 
   /**
@@ -678,7 +754,7 @@ export class MicroTaskService {
     created_by: string,
     queryRunner: QueryRunner,
     limit?: number,
-  ): Promise<MicroTask[]> {
+  ): Promise<string> {
     const source_task: Task | null = await this.taskService.findOne({
       where: { id: source_task_id },
       relations: { taskType: true },
@@ -704,52 +780,70 @@ export class MicroTaskService {
         `Task type mismatch between source task and target task`,
       );
     }
-    const microTasks: MicroTask[] = await this.microTaskRepository.find({
+    const sourceMicroTasks: MicroTask[] = await this.microTaskRepository.find({
       where: { task_id: source_task_id },
       relations: { dataSets: true },
     });
-    let datasets: DataSet[] = microTasks.map((m) => m.dataSets).flat();
-    datasets = datasets.filter((d) => d.status === DataSetStatus.APPROVED);
-    if (datasets.length === 0) {
+    const targetMicroTasks = await this.microTaskRepository.find({
+      where: { task_id: task_id },
+    });
+    let sourceDataSets: DataSet[] = sourceMicroTasks
+      .map((m) => m.dataSets)
+      .flat();
+    sourceDataSets = sourceDataSets.filter(
+      (d) => d.status === DataSetStatus.APPROVED,
+    );
+    if (sourceDataSets.length === 0) {
       throw new NotFoundException(`No micro tasks found in source task`);
     }
+    const derivedIds = new Set(
+      targetMicroTasks.map((m) => m.derived_from_dataset_id),
+    );
+
+    const newSourceDataSets = sourceDataSets.filter(
+      (dataSet) => !derivedIds.has(dataSet.id),
+    );
     if (limit && limit > 0) {
-      datasets = datasets.slice(0, limit);
+      sourceDataSets = sourceDataSets.slice(0, limit);
+    }
+    if (newSourceDataSets.length === 0) {
+      throw new BadRequestException(
+        `All datasets already exist in target task`,
+      );
     }
     const manager = queryRunner.manager;
     const microTaskCode = await this.generateCode();
     if (task_type_split[0] === 'text') {
       const microtasks = await Promise.all(
-        datasets.map(async (dataset) => {
+        newSourceDataSets.map(async (dataset) => {
           return await manager.save(MicroTask, {
             task_id: task_id,
             code: microTaskCode,
             text: dataset.text_data_set,
             is_test: false,
             file_path: '',
-            type: task_type_split[0],
+            type: 'text',
             created_by: created_by,
+            derived_from_dataset_id: dataset.id,
           });
         }),
       );
-      return microtasks;
+      return `${microtasks.length} microtasks imported successfully`;
     } else {
       const microtasks = await Promise.all(
-        datasets.map(async (dataset) => {
+        newSourceDataSets.map(async (dataset) => {
           return await manager.save(MicroTask, {
             task_id: task_id,
             code: microTaskCode,
             text: '',
             is_test: false,
             file_path: dataset.file_path,
-            type: task_type_split[0],
-            minimum_seconds: 5,
-            maximum_seconds: dataset.audio_duration,
+            type: task_type_split[0] as 'audio' | 'image',
             created_by: created_by,
           });
         }),
       );
-      return microtasks;
+      return `${microtasks.length} microtasks imported successfully`;
     }
   }
   /**

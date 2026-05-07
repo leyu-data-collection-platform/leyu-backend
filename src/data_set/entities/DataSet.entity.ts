@@ -14,6 +14,7 @@ import { RejectionReason } from './RejectionReason.entity';
 import { DataSetStatus } from 'src/utils/constants/DataSetStatus.constant';
 import { Dialect, Language } from 'src/base_data/entities';
 import { FlagReason } from './FlagReason.entity';
+import { DataSetReview } from 'src/task_distribution/enitities/DataSetReview.entity';
 
 @Entity('data_set')
 export class DataSet {
@@ -36,7 +37,7 @@ export class DataSet {
       DataSetStatus.REJECTED,
     ], //["Pending", "UnderReview" ,"Approved","Rejected" ]
   })
-  status: string;
+  status: 'Pending' | 'Flagged' | 'Approved' | 'Rejected';
 
   @Column({
     default: false,
@@ -58,9 +59,6 @@ export class DataSet {
   })
   is_paid_for_contributor: boolean;
 
-  @Column({ nullable: true })
-  rejection_reason_id: string;
-
   @Column({ default: false })
   is_paid_for_reviewer: boolean;
 
@@ -79,8 +77,8 @@ export class DataSet {
   @Column({ nullable: true })
   file_path: string;
 
-  @Column({ nullable: true })
-  type: string;
+  @Column({ nullable: true, enum: ['audio', 'text', 'image'] })
+  type: 'audio' | 'text' | 'image';
 
   @CreateDateColumn()
   created_date: Date;
@@ -104,12 +102,10 @@ export class DataSet {
   contributor_id: string;
 
   // Attempt belongs to User as Reviewer
-  @ManyToOne(() => User, (user) => user.reviews, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'reviewer_id' })
-  reviewer: User;
+  // @ManyToOne(() => User, (user) => user.reviews, { onDelete: 'CASCADE' })
+  // @JoinColumn({ name: 'reviewer_id' })
+  // reviewer: User;
 
-  @Column({ nullable: true })
-  reviewer_id: string;
   // Attempts may have many rejection reasons
   @OneToMany(
     () => RejectionReason,
@@ -123,9 +119,6 @@ export class DataSet {
   @Column({ nullable: true })
   dialect_id: string;
 
-  @Column({ nullable: true })
-  annotation: string;
-
   @ManyToOne(() => Dialect, (dialect) => dialect.dataSets)
   @JoinColumn({ name: 'dialect_id' })
   dialect: Dialect;
@@ -135,4 +128,13 @@ export class DataSet {
   @ManyToOne(() => Language, (language) => language.dataSets)
   @JoinColumn({ name: 'language_id' })
   language: Language;
+
+  @OneToMany(() => DataSetReview, (dataSetReview) => dataSetReview.dataSet)
+  dataSetReviews: DataSetReview[];
+
+  @Column({
+    default: 'Pending',
+    enum: ['Pending', 'Approved', 'Rejected'],
+  })
+  qa_review_status: 'Pending' | 'Approved' | 'Rejected';
 }

@@ -1,17 +1,26 @@
-import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsOptional, IsString } from 'class-validator';
 
-const createOrganizationSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-});
-const updateOrganizationSchema = createOrganizationSchema.partial();
+export class CreateOrganizationDto {
+  @ApiProperty()
+  @IsString()
+  @IsOptional()
+  name?: string;
 
-export class CreateOrganizationDto extends createZodDto(
-  createOrganizationSchema,
-) {}
-export class UpdateOrganizationDto extends createZodDto(
-  updateOrganizationSchema,
-) {}
+  @ApiProperty()
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsOptional()
+  address?: string;
+}
+
+export class UpdateOrganizationDto extends CreateOrganizationDto {}

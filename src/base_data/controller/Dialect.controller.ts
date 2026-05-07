@@ -7,7 +7,6 @@ import {
   Delete,
   Param,
   Query,
-  UsePipes,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -16,27 +15,32 @@ import {
   ApiResponse,
   ApiOperation,
   ApiBearerAuth,
-  ApiQuery,
   ApiExtraModels,
   getSchemaPath,
+  ApiHeaders,
 } from '@nestjs/swagger';
 import { DialectService } from '../service/Dialect.service';
-import { CreateDialectDto, UpdateDialectDto } from '../dto/Dialect.dto';
+import {
+  CreateDialectDto,
+  GetDialectDto,
+  UpdateDialectDto,
+} from '../dto/Dialect.dto';
 import { PaginationDto } from 'src/common/dto/Pagination.dto';
-import { ZodValidationPipe } from 'nestjs-zod';
 import { JwtAuthGuard } from 'src/auth/guard/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guard/role.guard';
 import { DialectSanitized } from '../sanitize';
 import { PaginatedResult } from 'src/utils/paginate.util';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/decorators/roles.enum';
 @Controller('/setting/dialect')
 @ApiTags('Dialects')
 export class DialectController {
   constructor(private readonly dialectService: DialectService) {}
 
   @Post()
-  @UsePipes(new ZodValidationPipe())
   @ApiOperation({ summary: 'Create a dialect' })
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async create(@Body() dialectData: CreateDialectDto, @Request() req) {
     return this.dialectService.create({
       ...dialectData,
@@ -44,8 +48,6 @@ export class DialectController {
     });
   }
   @Get('')
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Paginate Dialects' })
   @ApiExtraModels(PaginatedResult, DialectSanitized)
@@ -77,19 +79,24 @@ export class DialectController {
     };
   }
   @Get('all')
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    schema: { $ref: getSchemaPath(UpdateDialectDto) },
-  })
   @ApiOperation({ summary: 'Get All dialects' })
-  async findAll(@Query() query: UpdateDialectDto) {
-    return this.dialectService.findMany(query);
+  async findAll(@Query() query: GetDialectDto, @Request() req) {
+    const dialect = await this.dialectService.findMany({});
+    return dialect.map((item) => DialectSanitized.from(item, query.language));
   }
   @Get('language/:language_id')
   @ApiOperation({ summary: 'Get a dialect by ID' })
-  async findAllByLanguage(@Param('language_id') language_id: string) {
-    return this.dialectService.findMany({ language_id });
+  @ApiHeaders([{ name: 'Accept-Language', required: false }])
+  async findAllByLanguage(
+    @Param('language_id') language_id: string,
+    @Request() req,
+  ) {
+    const preferred_language =
+      (req.headers['accept-language'] as string) || 'en';
+    const dialect = await this.dialectService.findMany({ language_id });
+    return dialect.map((item) =>
+      DialectSanitized.from(item, preferred_language),
+    );
   }
   @Get(':id')
   @ApiOperation({ summary: 'Get a dialect by ID' })
@@ -98,10 +105,32 @@ export class DialectController {
     return this.dialectService.findOne({ id });
   }
 
+  // @Post('add-alternative-name/:id')
+  // async addAlternativeName(
+  //   @Param('id') id: string,
+  //   @Body() addLanguage: AddLanguageDto,
+  //   @Request() request,
+  // ) {
+  //   return this.dialectService.addAlternativeName(
+  //     id,
+  //     addLanguage.language_key,
+  //     addLanguage.alternative_name,
+  //   );
+  // }
+
+  // @Put('update-alternative-name/:id')
+  //   async updateAlternativeName(
+  //     @Param('id') id: string,
+  //     @Body() addLanguage: AddLanguageDto,
+  //     @Request() request,
+  //   ) {
+  //     return this.dialectService.updateAlternativeName(id,addLanguage.language_key,addLanguage.alternative_name);
+  //   }
   @Put(':id')
-  @UsePipes(new ZodValidationPipe())
   @ApiOperation({ summary: 'Update a dialect' })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async update(
     @Param('id') id: string,
     @Body() dialectData: UpdateDialectDto,
@@ -114,6 +143,7 @@ export class DialectController {
   }
 
   @Delete(':id')
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete a dialect' })
   @UseGuards(JwtAuthGuard, RolesGuard)
   async delete(@Param('id') id: string) {

@@ -87,8 +87,9 @@ export class DataSetSanitize {
   @ApiProperty()
   type: string;
 
-  @ApiProperty()
-  annotation: string;
+  // TO DO
+  // @ApiProperty()
+  // annotation: string;
 
   @ApiProperty()
   created_date: Date;
@@ -114,7 +115,8 @@ export class DataSetSanitize {
       file_path: dataSet.file_path,
       type: dataSet.type,
       created_date: dataSet.created_date,
-      annotation: dataSet.annotation,
+      // TO DO
+      // annotation: dataSet.annotation,
       micro_task_id: dataSet.micro_task_id,
       microTask: dataSet.microTask && MicroTaskSanitize.from(dataSet.microTask),
       rejectionReasons: dataSet.rejectionReasons
@@ -127,9 +129,9 @@ export class DataSetSanitize {
             FlagReasonSanitize.from(flagReason),
           )
         : undefined,
-      reviewer: dataSet.reviewer
-        ? UserSanitize.from(dataSet.reviewer)
-        : undefined,
+      // reviewer: dataSet.reviewer
+      //   ? UserSanitize.from(dataSet.reviewer)
+      //   : undefined,
     };
   }
 }
@@ -187,9 +189,6 @@ export class RejectionReasonSanitize {
   reason: string;
 
   @ApiProperty()
-  comment: string;
-
-  @ApiProperty()
   created_date: Date;
 
   @ApiProperty()
@@ -199,8 +198,6 @@ export class RejectionReasonSanitize {
     return {
       id: rejectionReason.id,
       reason: rejectionReason.rejectionType?.name,
-
-      comment: rejectionReason.comment,
       created_date: rejectionReason.created_date,
     };
   }

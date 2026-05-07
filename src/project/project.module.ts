@@ -15,7 +15,7 @@ import { BaseDataModule } from 'src/base_data/base_data.module';
 import { UserTaskService } from './service/UserTask.service';
 import { UserTask } from './entities/UserTask.entity';
 import { EmailModule } from 'src/email/email.module';
-import { TaskInstructionService } from './service/TaskInstruction.service';
+import { taskInstructionervice } from './service/TaskInstruction.service';
 import { TaskInstruction } from './entities/TaskInstruction.entity';
 import { TaskRequirement } from './entities/TaskRequirement.entity';
 import { TaskRequirementService } from './service/TaskRequirement.service';
@@ -28,6 +28,8 @@ import { TaskPaymentService } from './service/TaskPayment.service';
 import { TaskPayment } from './entities/TaskPayment.entity';
 import { FacilitatorController } from './controller/Facilitator.controller';
 import { TaskServiceHelperService } from './service/TaskServiceHelper.service';
+import { ReviewerTaskInstruction } from './entities/ReviewerTaskInstruction.entity';
+import { QATaskInstruction } from './entities/QATaskInstruction.entity';
 
 @Module({
   imports: [
@@ -37,6 +39,8 @@ import { TaskServiceHelperService } from './service/TaskServiceHelper.service';
       TaskType,
       UserTask,
       TaskInstruction,
+      ReviewerTaskInstruction,
+      QATaskInstruction,
       TaskPayment,
       TaskRequirement,
       InvitationLink,
@@ -54,7 +58,7 @@ import { TaskServiceHelperService } from './service/TaskServiceHelper.service';
     TaskServiceHelperService,
     TaskPaymentService,
     UserTaskService,
-    TaskInstructionService,
+    taskInstructionervice,
     TaskRequirementService,
     InvitationLinkService,
     FacilitatorContributorService,

@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { BaseDataModule } from './base_data/base_data.module';
 import { CommonModule } from './common/common.module';
 import { ProjectModule } from './project/project.module';
@@ -25,6 +26,14 @@ import { BullModule } from '@nestjs/bullmq';
 import { BackgroundTaskModule } from './background_task/background_task.module';
 import * as Joi from 'joi';
 import configuration from './config/configuration';
+import { I18nModule, QueryResolver } from 'nestjs-i18n';
+import { YcI18nModule } from './yc-i18n/yc-i18n.module';
+import * as path from 'path';
+import { ThrottlerStorageRedisService } from 'nestjs-throttler-storage-redis';
+import { APP_GUARD } from '@nestjs/core';
+import { HttpOnlyThrottlerGuard } from './auth/guard/otp-throttler.guard';
+// import { APP_GUARD } from '@nestjs/core';
+// import { OtpThrottlerGuard } from './auth/guard/otp-throttler.guard';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -61,6 +70,10 @@ import configuration from './config/configuration';
         MINIO_BUCKET: Joi.string().required(),
         EMAIL_USER: Joi.string().required(),
         EMAIL_PASS: Joi.string().required(),
+        PAYMENT_BASE_URL: Joi.string().required(),
+        PAYMENT_MERCHANT_ID: Joi.string().required(),
+        FRONTEND_URL: Joi.string().required(),
+        WALLET_INTEGRITY_SECRET: Joi.string().required(),
       }),
       validationOptions: {
         allowUnknown: true,
@@ -78,6 +91,32 @@ import configuration from './config/configuration';
       defaults: {
         from: '"Leyu" leyu@gmail.com',
       },
+    }),
+    I18nModule.forRoot({
+      fallbackLanguage: 'en',
+      loaderOptions: {
+        path: path.join(process.cwd(), 'src/i18n/'),
+        watch: true,
+      },
+      resolvers: [new QueryResolver(['lang'])],
+      typesOutputPath: path.join(
+        __dirname,
+        '../src/generated/i18n.generated.ts',
+      ),
+    }),
+
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: 60000,
+          limit: 400,
+        },
+      ],
+      storage: new ThrottlerStorageRedisService(
+        process.env.REDIS_URL ||
+          `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`,
+      ),
+      errorMessage: 'Too many requests, please try again later.',
     }),
     BullModule.forRoot({
       connection: {
@@ -105,9 +144,16 @@ import configuration from './config/configuration';
     StatisticsModule,
     CacheModule,
     BackgroundTaskModule,
+    YcI18nModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: HttpOnlyThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {

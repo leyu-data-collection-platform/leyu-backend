@@ -36,6 +36,11 @@ import { JwtService } from '@nestjs/jwt';
 import { GENDER_CONSTANT } from 'src/utils/constants/Gender.constant';
 import { WalletService } from 'src/finance/service/Wallet.service';
 import { UserScoreService } from './UserScore.service';
+import { UserReferralService } from './UserReferral.service';
+import { UserSanitize } from '../sanitize';
+import { PublisherService } from 'src/common/service/RabbitPublish.service';
+import { FirstContributorUpdateDto } from '../dto/User.dto';
+import { LanguageConstants } from 'src/utils/constants/Language.constant';
 @Injectable()
 export class UserService {
   constructor(
@@ -50,8 +55,10 @@ export class UserService {
     private readonly zoneService: ZoneService,
     private readonly regionService: RegionService,
     private readonly walletService: WalletService,
-    private userScoreService: UserScoreService,
-    private userVerificationService: UserVerificationCodeService,
+    private readonly userScoreService: UserScoreService,
+    private readonly userVerificationService: UserVerificationCodeService,
+    private readonly userReferralService: UserReferralService,
+    private readonly publishService: PublisherService,
     private jwtService: JwtService,
     // private eventEmitter: EventEmitter2,
   ) {
@@ -133,6 +140,7 @@ export class UserService {
       phone_number: true,
       gender: true,
       role_id: true,
+      preferred_language: true,
     };
     if (query.select) {
       options.select = query.select;
@@ -220,6 +228,7 @@ export class UserService {
 
     const hashedPassword = await hashPassword(userData.password);
     userData.password = hashedPassword;
+    userData.referral_code = generateReferralCode();
     if (queryRunner) {
       const manager = queryRunner.manager;
       const user = manager.create(User, userData);
@@ -348,6 +357,47 @@ export class UserService {
     return { user, access_token };
   }
 
+  async uploadNationalId(userId: string, filePath: string) {
+    const filePresignedUrl = await this.fileService.getPreSignedUrl(filePath);
+    await this.publishService.publishNationIdImage({
+      request_id: userId,
+      image_url: filePresignedUrl,
+    });
+    const user = await this.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (user.kyc_verification_status == 'approved') {
+      throw new BadRequestException('User already approved');
+    }
+    await this.userRepository.update(userId, {
+      national_id: filePath,
+      kyc_verification_status: 'under_review',
+    });
+    return filePresignedUrl;
+  }
+  async updateReferralCode(userId: string, referralCode: string) {
+    const user = await this.findOne({
+      where: { id: userId },
+      relations: { receivedReferral: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (user.receivedReferral) {
+      throw new BadRequestException('Referral code already exists');
+    }
+    const referral_code = referralCode.trim().toUpperCase();
+    const referredBy = await this.findOne({
+      where: { referral_code: referralCode },
+    });
+    if (referredBy) {
+      await this.userReferralService.createReferral(referredBy.id, user.id);
+    } else {
+      throw new BadRequestException('Invalid referral code');
+    }
+    await this.userRepository.update(userId, { referral_code: referralCode });
+  }
   /**
    * Finds users with pagination
    * @param query - Query options for user
@@ -456,6 +506,43 @@ export class UserService {
       query,
     );
   }
+
+  /**
+   * Finds facilitators with pagination
+   * @param query - Query options for user
+   * @param paginationDto - Pagination options
+   * @returns A promise resolving to a paginated result of users
+   * @throws {BadRequestException} - If the query is invalid
+   */
+  async findQAsPaginate(
+    query: QueryOptions<User>,
+    paginationDto: PaginationDto,
+  ): Promise<PaginatedResult<User>> {
+    // check if the query is array
+    const qaRole = await this.roleService.findOne({
+      name: RoleConstant.QA,
+    });
+    const qaRoleId = qaRole?.id || '';
+    if (Array.isArray(query.where)) {
+      query.where = query.where.map((item) => ({
+        ...item,
+        is_active: true,
+        role_id: qaRoleId,
+      }));
+    } else {
+      query.where = {
+        ...query.where,
+        is_active: true,
+        role_id: qaRoleId,
+      };
+    }
+    return this.paginationService.paginateWithOptionQuery(
+      paginationDto,
+      'user',
+      query,
+    );
+  }
+
   /**
    * Finds contributors with pagination
    * @param query - Query options for user
@@ -533,10 +620,13 @@ export class UserService {
    * @returns A promise resolving to the updated user if found, or null.
    * @throws {BadRequestException} - If the email already exists.
    */
-  async firstUpdate(id: any, userData: Partial<User>): Promise<User | null> {
-    delete userData.id;
-    // delete userData.password;
-    userData.is_active = true;
+  async firstUpdate(
+    id: any,
+    userData: FirstContributorUpdateDto & {
+      password?: string;
+      national_id?: string;
+    },
+  ): Promise<User | null> {
     const hashedPassword = await hashPassword(userData.password || 'pending');
     userData.password = hashedPassword;
     if (userData.email) {
@@ -545,18 +635,40 @@ export class UserService {
         throw new BadRequestException('Email already exists');
       }
     }
+
     const manager = this.userRepository;
-    await manager.update(id, userData);
+    await manager.update(id, {
+      ...userData,
+      referral_code: undefined,
+      is_active: true,
+      kyc_verification_status: userData.national_id
+        ? 'under_review'
+        : 'pending',
+    });
     const user = await manager.findOne({
       where: { id },
       relations: { role: true },
     });
-    // if (user?.role.name==RoleConstant.CONTRIBUTOR) {
-    //   this.eventEmitter.emit(
-    //     ActionEvents.USER_CREATED,
-    //   new ContributorCreatedEvent(id),
-    // );
-    // }
+    if (userData.referral_code) {
+      const referralCode = userData.referral_code.trim().toUpperCase();
+      const referredBy = await this.findOne({
+        where: { referral_code: referralCode },
+      });
+      if (referredBy) {
+        await this.userReferralService.createReferral(referredBy.id, id);
+      } else {
+        throw new BadRequestException('Invalid referral code');
+      }
+    }
+    if (userData.national_id) {
+      const filePath = await this.fileService.getPreSignedUrl(
+        userData.national_id,
+      );
+      await this.publishService.publishNationIdImage({
+        request_id: id,
+        image_url: filePath,
+      });
+    }
     return user;
   }
   /**
@@ -599,6 +711,15 @@ export class UserService {
       );
     }
     return user;
+  }
+
+  async validateIfUserAlreadyExist(email: string, role_id: string) {
+    const user = await this.findOne({ where: { email: email } });
+    if (user) {
+      throw new BadRequestException('User Already Exist');
+    } else {
+      return true;
+    }
   }
   /**
    * Updates a user with the given id and partial user data.
@@ -693,11 +814,22 @@ export class UserService {
   }
 
   /**
+   * Marks a user as having logged in for the first time.
+   * Uses a conditional update to avoid redundant writes on subsequent logins.
+   * @param userId The id of the user to mark as logged in.
+   */
+  async markAsLoggedIn(userId: string): Promise<void> {
+    await this.userRepository.update(
+      { id: userId, has_logged_in: false },
+      { has_logged_in: true },
+    );
+  }
+
+  /**
    * Creates a super admin user if one does not exist.
    * Creates all the roles if they do not exist.
    * Creates a super admin user with the id '15bc2137-0b08-449e-8e7e-c68f2e830bd5'
-   * , the email 'guest@gmail.com', the role 'SuperAdmin',
-   * and the password 'guest@1234'.
+   * and the password 'SuperAdmin123'.
    * @returns A promise resolving to nothing.
    */
   private async createSuperAdminIfNotExists() {
@@ -1167,4 +1299,92 @@ export class UserService {
       .groupBy('user.gender')
       .getRawMany();
   }
+  async getUserProfile(user_id: string): Promise<UserSanitize> {
+    const user = await this.userRepository.findOne({
+      where: { id: user_id },
+      relations: {
+        role: true,
+        score: true,
+        wallet: true,
+        dialect: true,
+        language: true,
+        region: true,
+        zone: true,
+        receivedReferral: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    const profilePicture = user.profile_picture
+      ? await this.fileService.getPreSignedUrl(user.profile_picture)
+      : '';
+    let userScore = user.score ? user.score.score : 0;
+    if (user.role.name == RoleConstant.FACILITATOR) {
+      userScore =
+        await this.userReferralService.calculateFacilitatorScore(user_id);
+    }
+    if (user.role.name === RoleConstant.CONTRIBUTOR) {
+      const stats = await this.userRepository
+        .createQueryBuilder('u')
+        .leftJoin('u.contributes', 'd') // assuming relation is named 'dataset'
+        .where('u.id = :id', { id: user.id })
+        .select([
+          'COUNT(d.id) AS totaldatasets',
+          "SUM(CASE WHEN d.status = 'Approved' THEN 1 ELSE 0 END) AS approveddatasets",
+        ])
+        .groupBy('u.id')
+        .getRawOne();
+
+      const totalDatasets = Number(stats?.totaldatasets ?? 0);
+      const approvedDatasets = Number(stats?.approveddatasets ?? 0);
+      return UserSanitize.from(
+        { ...user, profile_picture: profilePicture },
+        userScore,
+        totalDatasets,
+        approvedDatasets,
+        user.receivedReferral ? true : false,
+      );
+    }
+    return UserSanitize.from(
+      { ...user, profile_picture: profilePicture },
+      userScore,
+    );
+  }
+  async getMyScore(user_id: string): Promise<{ score: number }> {
+    const user = await this.userRepository.findOne({
+      where: { id: user_id },
+      relations: { score: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    let userScore = user.score ? user.score.score : 0;
+    if (user.role.name == RoleConstant.FACILITATOR) {
+      userScore =
+        await this.userReferralService.calculateFacilitatorScore(user_id);
+    }
+    return { score: userScore };
+  }
+
+  async updatedPreferredLanguage(
+    user_id: string,
+    language: LanguageConstants,
+  ): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { id: user_id } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    await this.userRepository.update(user_id, { preferred_language: language });
+  }
+}
+function generateReferralCode(): string {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let referralCode = '';
+  for (let i = 0; i < 6; i++) {
+    referralCode += characters.charAt(
+      Math.floor(Math.random() * characters.length),
+    );
+  }
+  return referralCode;
 }
